@@ -31,7 +31,7 @@
     "targets": "all",
     "resources": [
       "../LICENSE",
-      "../LICENSE-APACHE-2.0",
+      "../third-party/licenses/Apache-2.0.txt",
       "../THIRD_PARTY_NOTICES.md"
     ],
     "icon": [

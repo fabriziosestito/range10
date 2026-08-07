@@ -160,7 +160,7 @@ MIT, Apache-2.0, ISC, BSD, and other permissive licenses. Exact versions are
 recorded in `package-lock.json` and `src-tauri/Cargo.lock`; complete license
 metadata and texts are available in the corresponding upstream source
 packages. The canonical Apache License 2.0 text is included in
-`LICENSE-APACHE-2.0`.
+`third-party/licenses/Apache-2.0.txt`.
 
 The software listed above that is offered under the MIT License is used under
 the following terms:
