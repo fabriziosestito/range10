@@ -5,7 +5,6 @@ APP_BUNDLE := src-tauri/target/release/bundle/macos/$(APP_NAME).app
 INSTALL_PATH := /Applications/$(APP_NAME).app
 IOS_IPA := src-tauri/gen/apple/build/arm64/range10.ipa
 IOS_EXTRACT := /tmp/range10-ios-sideload
-TAURI_IOS := ./scripts/tauri-ios.sh
 
 .PHONY: install install-deps dev run run-app web check format build bundle install-app ios ios-init ios-list ios-runtime ios-device ios-ipa ipa ios-sideload clean
 
@@ -54,10 +53,10 @@ install-app: bundle
 install: install-app
 
 ios:
-	$(TAURI_IOS) dev
+	npm run tauri:ios
 
 ios-init:
-	$(TAURI_IOS) init
+	npx tauri ios init
 
 ios-list:
 	xcrun devicectl list devices
@@ -67,10 +66,10 @@ ios-runtime:
 
 ios-device:
 	@test -n "$(DEVICE)" || (printf 'Usage: make ios-device DEVICE="Your iPhone name or UDID"\n' && exit 1)
-	$(TAURI_IOS) run --release "$(DEVICE)"
+	npx tauri ios run --release "$(DEVICE)"
 
 ios-ipa: node_modules/.package-lock.json
-	$(TAURI_IOS) build --ci --export-method debugging
+	npx tauri ios build --ci --export-method debugging
 
 ipa: ios-ipa
 
