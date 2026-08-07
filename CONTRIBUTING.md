@@ -68,6 +68,11 @@ Initialize the generated iOS project when required:
 make ios-init
 ```
 
+The Make targets run Tauri through `scripts/tauri-ios.sh`. The wrapper restores
+tracked files under `src-tauri/gen/apple/` after each command, so local signing
+values and build-time Xcode edits do not dirty the repository. Build outputs,
+including IPAs, remain available in the ignored Apple build directory.
+
 Tauri requires an installed iOS Simulator runtime even for physical-device
 builds. Install one from Xcode or run:
 

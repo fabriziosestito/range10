@@ -46,6 +46,8 @@
   `APPLE_DEVELOPMENT_TEAM` environment variable.
 - Treat iOS project regeneration as destructive. Preserve Bluetooth usage text,
   CoreBluetooth, background modes, entitlements, and project build scripts.
+- Use `scripts/tauri-ios.sh` or the Make iOS targets so build-time changes to
+  tracked generated Apple files are restored automatically.
 - Do not add `dist`, `node_modules`, `src-tauri/target`, Apple `build`, Apple
   `Externals`, or generated Tauri schemas to version control.
 
