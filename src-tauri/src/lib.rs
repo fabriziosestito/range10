@@ -307,15 +307,6 @@ async fn start_r10(
                     }
                     Ok(Some(Event::WakeUpResponse { .. })) => {
                         let _ = app.emit("r10://stage", "waking");
-                        let voice_enabled = app
-                            .state::<VoiceState>()
-                            .config
-                            .lock()
-                            .map(|config| config.voice_enabled)
-                            .unwrap_or(false);
-                        if voice_enabled {
-                            speak(&app, "Ready".into());
-                        }
                     }
                     Ok(Some(Event::Shot(shot))) => {
                         let _ = app.emit("r10://shot", &shot);
@@ -327,6 +318,15 @@ async fn start_r10(
                     }
                     Ok(Some(Event::Ready)) => {
                         let _ = app.emit("r10://ready", ());
+                        let voice_enabled = app
+                            .state::<VoiceState>()
+                            .config
+                            .lock()
+                            .map(|config| config.voice_enabled)
+                            .unwrap_or(false);
+                        if voice_enabled {
+                            speak(&app, "Ready".into());
+                        }
                     }
                     Ok(Some(Event::DeviceError(error))) => {
                         let _ = app.emit("r10://device-error", error);
