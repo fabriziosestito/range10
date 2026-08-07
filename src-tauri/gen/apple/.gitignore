@@ -1,0 +1,8 @@
+xcuserdata/
+build/
+Externals/
+DerivedData/
+*.xcuserstate
+*.mobileprovision
+*.xcarchive
+*.dSYM
