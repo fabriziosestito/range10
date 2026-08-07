@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
-import { checkPermissions, startScan, stopScan, type BleDevice } from '@mnlphlp/plugin-blec'
+import { checkPermissions, connect as connectBle, disconnect as disconnectBle, startScan, stopScan, type BleDevice } from '@mnlphlp/plugin-blec'
 import { isSpeaking, speak, stop } from 'tauri-plugin-tts-api'
 import {
   Activity,
@@ -10,9 +10,7 @@ import {
   Bluetooth,
   BluetoothConnected,
   Box,
-  Check,
   CircleAlert,
-  CircleDot,
   Gauge,
   List,
   LoaderCircle,
@@ -39,33 +37,7 @@ type MetricKey = 'clubSpeed' | 'path' | 'face' | 'attack' | 'tempo' | 'launch' |
 
 type Tab = 'stats' | 'log' | 'view' | 'settings'
 
-type ConnectionPhase = 'idle' | 'scanning' | 'selecting' | 'ble' | 'multilink' | 'gfdi' | 'subscribe' | 'wake' | 'ready' | 'error'
-
-type NativeConnectionEvent = {
-  attemptId: number
-  stage: Exclude<ConnectionPhase, 'idle' | 'scanning' | 'selecting'> | 'device' | 'disconnected'
-  message: string
-}
-
-type ProgressItem = {
-  phase: ConnectionPhase
-  label: string
-  detail: string
-}
-
-type ConnectionLogEntry = {
-  stage: string
-  message: string
-}
-
-const negotiationSteps: ProgressItem[] = [
-  { phase: 'ble', label: 'BLE', detail: 'Connect and discover services' },
-  { phase: 'multilink', label: 'MultiLink', detail: 'Open Garmin transport' },
-  { phase: 'gfdi', label: 'GFDI', detail: 'Negotiate device capabilities' },
-  { phase: 'subscribe', label: 'Subscribe', detail: 'Enable launch monitor data' },
-  { phase: 'wake', label: 'Wake', detail: 'Arm the R10 for shots' },
-  { phase: 'ready', label: 'Ready', detail: 'Wait for your swing' },
-]
+type ConnectionPhase = 'idle' | 'scanning' | 'selecting' | 'connecting' | 'ready' | 'error'
 
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'stats', label: 'Stats', icon: Gauge },
@@ -156,8 +128,6 @@ function App() {
   const [connectionStatus, setConnectionStatus] = useState('Close Garmin Golf and wait for the R10 light to turn blue.')
   const [r10Devices, setR10Devices] = useState<BleDevice[]>([])
   const [selectedDevice, setSelectedDevice] = useState<BleDevice | null>(null)
-  const [completedPhases, setCompletedPhases] = useState<ConnectionPhase[]>([])
-  const [connectionLog, setConnectionLog] = useState<ConnectionLogEntry[]>([])
   const [cleaningUp, setCleaningUp] = useState(false)
   const [preferredR10Address, setPreferredR10Address] = useState('')
   const [settingsLoaded, setSettingsLoaded] = useState(false)
@@ -171,9 +141,10 @@ function App() {
   const attemptRef = useRef(0)
   const scanTimerRef = useRef<number | null>(null)
   const readyTimerRef = useRef<number | null>(null)
+  const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
 
-  const connectionBusy = cleaningUp || ['scanning', 'ble', 'multilink', 'gfdi', 'subscribe', 'wake'].includes(connectionPhase)
+  const connectionBusy = cleaningUp || ['scanning', 'connecting'].includes(connectionPhase)
 
   const clearScanTimer = () => {
     if (scanTimerRef.current !== null) {
@@ -186,6 +157,13 @@ function App() {
     if (readyTimerRef.current !== null) {
       window.clearTimeout(readyTimerRef.current)
       readyTimerRef.current = null
+    }
+  }
+
+  const clearHandshakeTimer = () => {
+    if (handshakeTimerRef.current !== null) {
+      window.clearTimeout(handshakeTimerRef.current)
+      handshakeTimerRef.current = null
     }
   }
 
@@ -257,58 +235,31 @@ function App() {
   useEffect(() => {
     if (!(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) return
     let active = true
-    let disposeConnection: (() => void) | undefined
-    void listen<NativeConnectionEvent>('r10://connection', ({ payload }) => {
-      if (payload.attemptId !== attemptRef.current) return
-      setConnectionLog((current) => [...current, { stage: payload.stage, message: payload.message }])
-      if (payload.stage === 'device') {
-        setConnectionError(payload.message)
-        return
-      }
-      if (payload.stage === 'disconnected') {
-        clearReadyTimer()
-        connectLockRef.current = false
-        setConnected(false)
-        setConnectionPhase((current) => {
-          if (current === 'error') return current
-          setConnectionStatus(payload.message)
-          setConnectionError(payload.message)
-          setConnectionOpen(true)
-          return 'error'
-        })
-        return
-      }
-      setConnectionStatus(payload.message)
-      if (payload.stage === 'error') {
-        clearReadyTimer()
-        connectLockRef.current = false
-        setConnected(false)
-        setConnectionError(payload.message)
-        setConnectionPhase('error')
-        setConnectionOpen(true)
-        return
-      }
-      const phase = payload.stage as ConnectionPhase
-      setCompletedPhases((current) => current.includes(phase) ? current : [...current, phase])
-      setConnectionPhase(phase)
-      if (phase === 'ready') {
+    let disposeStage: (() => void) | undefined
+    let disposeError: (() => void) | undefined
+    let disposeDeviceError: (() => void) | undefined
+    void listen<string>('r10://stage', ({ payload }) => {
+      if (payload === 'waking') {
+        clearHandshakeTimer()
         connectLockRef.current = false
         setConnected(true)
+        setConnectionStatus('R10 connected, waiting for your swing.')
         setConnectionError('')
+        setConnectionPhase('ready')
         clearReadyTimer()
         readyTimerRef.current = window.setTimeout(() => {
-          setConnectionPhase((current) => {
-            if (current === 'ready') setConnectionOpen(false)
-            return current
-          })
+          setConnectionOpen(false)
         }, 900)
+      } else {
+        setConnectionStatus('Connecting to your R10...')
+        setConnectionPhase('connecting')
       }
     }).then((unlisten) => {
-      if (active) disposeConnection = unlisten
+      if (active) disposeStage = unlisten
       else unlisten()
     }).catch(() => undefined)
-    let disposeLegacyError: (() => void) | undefined
     void listen<string>('r10://error', ({ payload }) => {
+      clearHandshakeTimer()
       clearReadyTimer()
       connectLockRef.current = false
       setConnected(false)
@@ -317,19 +268,27 @@ function App() {
       setConnectionPhase('error')
       setConnectionOpen(true)
     }).then((unlisten) => {
-      if (active) disposeLegacyError = unlisten
+      if (active) disposeError = unlisten
+      else unlisten()
+    }).catch(() => undefined)
+    void listen<unknown>('r10://device-error', ({ payload }) => {
+      setConnectionError(`Garmin R10 reported an error: ${JSON.stringify(payload)}`)
+    }).then((unlisten) => {
+      if (active) disposeDeviceError = unlisten
       else unlisten()
     }).catch(() => undefined)
     return () => {
       active = false
-      disposeConnection?.()
-      disposeLegacyError?.()
+      disposeStage?.()
+      disposeError?.()
+      disposeDeviceError?.()
     }
   }, [])
 
   useEffect(() => () => {
     clearScanTimer()
     clearReadyTimer()
+    clearHandshakeTimer()
   }, [])
 
   const speedUnit = units === 'imperial' ? 'mph' : 'km/h'
@@ -382,9 +341,7 @@ function App() {
     connectLockRef.current = false
     setConnectionOpen(true)
     setConnectionPhase('scanning')
-    setCompletedPhases([])
     setSelectedDevice(null)
-    setConnectionLog([])
     setR10Devices([])
     setConnectionError('')
     setConnectionStatus('Scanning for nearby Approach R10 devices...')
@@ -438,23 +395,39 @@ function App() {
     clearReadyTimer()
     const attemptId = ++attemptRef.current
     setSelectedDevice(device)
-    setConnectionPhase('ble')
-    setCompletedPhases([])
-    setConnectionLog([{ stage: 'ble', message: 'Connecting to Approach R10 over Bluetooth' }])
+    setConnectionPhase('connecting')
     setConnectionError('')
     setConnectionStatus('Connecting to Approach R10 over Bluetooth...')
     try {
       await stopScan().catch(() => undefined)
       if (attemptRef.current !== attemptId) return
-      await invoke('disconnect_r10', { attemptId }).catch(() => undefined)
+      await connectBle(device.address, () => {
+        if (attemptRef.current !== attemptId) return
+        setConnected(false)
+        setConnectionError('Bluetooth connection lost')
+        setConnectionPhase('error')
+        setConnectionOpen(true)
+      })
       if (attemptRef.current !== attemptId) return
-      await invoke('start_r10', { address: device.address, attemptId })
+      if (attemptRef.current !== attemptId) return
+      handshakeTimerRef.current = window.setTimeout(() => {
+        if (attemptRef.current !== attemptId) return
+        connectLockRef.current = false
+        setConnectionError('The R10 did not respond to the connection request. Turn it off and on, then retry.')
+        setConnectionPhase('error')
+        setConnectionOpen(true)
+        void disconnectBle().catch(() => undefined)
+        void invoke('stop_r10').catch(() => undefined)
+      }, 20000)
+      await invoke('start_r10', { address: device.address })
       if (attemptRef.current === attemptId) setPreferredR10Address(device.address)
     } catch (error) {
       if (attemptRef.current !== attemptId) return
-      const cleanupAttemptId = ++attemptRef.current
+      ++attemptRef.current
       connectLockRef.current = false
-      void invoke('disconnect_r10', { attemptId: cleanupAttemptId }).catch(() => undefined)
+      clearHandshakeTimer()
+      void disconnectBle().catch(() => undefined)
+      void invoke('stop_r10').catch(() => undefined)
       setConnected(false)
       setConnectionError(errorMessage(error, 'Unable to connect to this BLE device'))
       setConnectionPhase('error')
@@ -469,13 +442,15 @@ function App() {
       return
     }
     setCleaningUp(true)
-    const attemptId = ++attemptRef.current
+    ++attemptRef.current
     connectLockRef.current = false
     clearScanTimer()
     clearReadyTimer()
+    clearHandshakeTimer()
     setConnectionStatus('Cancelling the current connection attempt...')
     await stopScan().catch(() => undefined)
-    if (isTauriRuntime()) await invoke('disconnect_r10', { attemptId }).catch(() => undefined)
+    void disconnectBle().catch(() => undefined)
+    if (isTauriRuntime()) await invoke('stop_r10').catch(() => undefined)
     setConnectionOpen(false)
     setConnectionPhase(connected ? 'ready' : 'idle')
     setCleaningUp(false)
@@ -484,14 +459,14 @@ function App() {
   const chooseAnotherDevice = async () => {
     if (cleaningUp) return
     setCleaningUp(true)
-    const attemptId = ++attemptRef.current
+    ++attemptRef.current
     connectLockRef.current = false
     clearScanTimer()
     clearReadyTimer()
-    if (isTauriRuntime()) await invoke('disconnect_r10', { attemptId }).catch(() => undefined)
+    clearHandshakeTimer()
+    void disconnectBle().catch(() => undefined)
+    if (isTauriRuntime()) await invoke('stop_r10').catch(() => undefined)
     setSelectedDevice(null)
-    setCompletedPhases([])
-    setConnectionLog([])
     setConnectionError('')
     setConnectionPhase('idle')
     setCleaningUp(false)
@@ -613,23 +588,14 @@ function App() {
           {!['idle', 'scanning', 'selecting'].includes(connectionPhase) && (connectionPhase !== 'error' || selectedDevice) && (
             <div className="min-h-0 space-y-4 overflow-y-auto">
               {selectedDevice && <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"><span><strong className="block text-sm">{displayDeviceName(selectedDevice)}</strong><small className="font-mono text-[0.65rem] text-muted-foreground">Selected launch monitor</small></span><Bluetooth className="size-5 text-primary" /></div>}
-              <div className="space-y-1">
-                {negotiationSteps.map((step, index) => {
-                  const failedIndex = Math.max(0, completedPhases.length - 1)
-                  const activeIndex = connectionPhase === 'error' ? failedIndex : negotiationSteps.findIndex((item) => item.phase === connectionPhase)
-                  const complete = completedPhases.includes(step.phase) && (step.phase === 'ready' || index < activeIndex)
-                  const active = step.phase === connectionPhase
-                  return <ConnectionStep key={step.phase} item={step} active={active} complete={complete} failed={connectionPhase === 'error' && index === failedIndex} />
-                })}
-              </div>
-              {connectionLog.length > 0 && <div className="rounded-xl border border-border bg-background/50 p-3"><p className="mb-2 font-mono text-[0.6rem] uppercase tracking-[0.14em] text-muted-foreground">Negotiation log</p><div className="max-h-28 space-y-1 overflow-y-auto font-mono text-[0.65rem] leading-relaxed">{connectionLog.map((entry, index) => <p key={`${entry.stage}-${index}`}><span className="mr-2 uppercase text-primary">[{entry.stage}]</span><span className="text-muted-foreground">{entry.message}</span></p>)}</div></div>}
+              {connectionPhase !== 'error' && <div className="flex min-h-24 items-center gap-3 rounded-xl border border-border bg-background/50 px-4"><LoaderCircle className="size-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Connecting to your R10...</p></div>}
               {connectionPhase === 'error' && <Alert variant="destructive"><CircleAlert /><AlertTitle>Connection stopped</AlertTitle><AlertDescription>{connectionError}</AlertDescription></Alert>}
             </div>
           )}
 
           <DialogFooter>
             {connectionPhase === 'error' ? (
-              <><Button variant="outline" onClick={() => void chooseAnotherDevice()}>Choose another</Button>{selectedDevice && <Button onClick={() => void connectToDevice(selectedDevice)}>Retry connection</Button>}</>
+              <><Button variant="ghost" onClick={() => void cancelConnection()} disabled={cleaningUp}>Cancel</Button><Button variant="outline" onClick={() => void chooseAnotherDevice()}>Choose another</Button>{selectedDevice && <Button onClick={() => void connectToDevice(selectedDevice)}>Retry connection</Button>}</>
             ) : (
               <Button variant="ghost" onClick={() => void cancelConnection()} disabled={cleaningUp}>{cleaningUp ? 'Cancelling...' : connectionBusy ? 'Cancel connection' : 'Close'}</Button>
             )}
@@ -659,7 +625,8 @@ function connectionTitle(phase: ConnectionPhase) {
   if (phase === 'ready') return 'R10 is ready'
   if (phase === 'error') return 'Connection needs attention'
   if (phase === 'idle') return 'Connect your R10'
-  return 'Preparing your session'
+  if (phase === 'connecting') return 'Connecting to your R10'
+  return 'Connect your R10'
 }
 
 function calculateTempo(swing: R10Shot['swing']) {
@@ -702,18 +669,6 @@ function EmptyState({ icon: Icon, title, description, badge, compact = false }: 
       {badge && <Badge variant="outline" className="mb-3 border-primary/30 text-primary">{badge}</Badge>}
       <h2 className="font-serif text-2xl sm:text-3xl">{title}</h2>
       <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
-    </div>
-  )
-}
-
-function ConnectionStep({ item, active, complete, failed }: { item: ProgressItem; active: boolean; complete: boolean; failed: boolean }) {
-  return (
-    <div aria-current={active ? 'step' : undefined} aria-label={`${item.label}: ${complete ? 'complete' : failed ? 'failed' : active ? 'in progress' : 'pending'}`} className={`grid grid-cols-[2rem_1fr_auto] items-center gap-3 rounded-xl px-3 py-2.5 ${active ? 'bg-accent/25' : ''}`}>
-      <span className={`flex size-8 items-center justify-center rounded-full border ${complete ? 'border-primary bg-primary text-primary-foreground' : failed ? 'border-destructive bg-destructive/10 text-destructive' : active ? 'border-primary text-primary' : 'border-border text-muted-foreground'}`}>
-        {complete ? <Check className="size-4" /> : active ? <LoaderCircle className="size-4 animate-spin" /> : <CircleDot className="size-3" />}
-      </span>
-      <span><strong className={`block text-sm ${active || complete ? 'text-foreground' : 'text-muted-foreground'}`}>{item.label}</strong><small className="block text-xs text-muted-foreground">{item.detail}</small></span>
-      {active && <Badge variant="outline" className="border-primary/30 font-mono text-[0.58rem] uppercase text-primary">Active</Badge>}
     </div>
   )
 }
