@@ -11,6 +11,9 @@ IOS_EXTRACT := /tmp/range10-ios-sideload
 install-deps:
 	npm install
 
+node_modules/.package-lock.json: package-lock.json
+	npm ci
+
 dev:
 	npm run tauri:dev
 
@@ -65,7 +68,7 @@ ios-device:
 	@test -n "$(DEVICE)" || (printf 'Usage: make ios-device DEVICE="Your iPhone name or UDID"\n' && exit 1)
 	npx tauri ios run --release "$(DEVICE)"
 
-ios-ipa:
+ios-ipa: node_modules/.package-lock.json
 	npx tauri ios build --ci --export-method debugging
 
 ipa: ios-ipa

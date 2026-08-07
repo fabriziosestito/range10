@@ -1,6 +1,7 @@
 xcuserdata/
 build/
 Externals/
+assets/
 DerivedData/
 *.xcuserstate
 *.mobileprovision
