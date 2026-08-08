@@ -35,7 +35,7 @@ make run
 Useful commands:
 
 ```sh
-make check       # Lint, frontend build, Rust format check, and cargo check
+make check       # Lint, frontend build, Rust format, clippy, and cargo check
 make bundle      # Build the macOS application bundle
 make run-app     # Open an existing release bundle without rebuilding
 make install     # Build and install /Applications/range10.app

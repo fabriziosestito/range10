@@ -35,6 +35,7 @@ check:
 	npm run lint
 	npm run build
 	cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+	cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
 	cargo check --manifest-path src-tauri/Cargo.toml
 
 test:
