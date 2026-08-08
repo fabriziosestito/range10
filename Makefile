@@ -6,7 +6,7 @@ INSTALL_PATH := /Applications/$(APP_NAME).app
 IOS_IPA := src-tauri/gen/apple/build/arm64/range10.ipa
 IOS_EXTRACT := /tmp/range10-ios-sideload
 
-.PHONY: install install-deps dev run run-app web check format build bundle install-app ios ios-init ios-list ios-runtime ios-device ios-ipa ipa ios-sideload clean
+.PHONY: install install-deps dev run run-app web check test format build bundle install-app ios ios-init ios-list ios-runtime ios-device ios-ipa ipa ios-sideload clean
 
 install-deps:
 	npm install
@@ -36,6 +36,10 @@ check:
 	npm run build
 	cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 	cargo check --manifest-path src-tauri/Cargo.toml
+
+test:
+	npm run test
+	cargo test --manifest-path src-tauri/Cargo.toml --lib
 
 build:
 	npm run build

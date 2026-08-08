@@ -55,18 +55,24 @@ Run before completing code changes:
 
 ```sh
 make check
+make test
 ```
 
-This runs frontend lint/build and Rust format/check. It does not run automated
-tests because the repository does not currently have a test suite.
+`make check` runs frontend lint/build and Rust format/check. `make test` runs
+the frontend unit tests (vitest) and Rust unit tests (`cargo test --lib`). CI
+runs both. Tests cover pure logic in `src/lib/format.ts` and
+`src-tauri/src/voice.rs`; the App render test runs in browser mode so all
+native Tauri calls are guarded out.
 
 Targeted commands:
 
 ```sh
 npm run lint
 npm run build
+npm run test
 cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
 Use `make run` for the incremental desktop development loop. Real BLE and R10

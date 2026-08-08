@@ -33,6 +33,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Test
+        run: npm run test
+
       - name: Build
         run: npm run build
 
@@ -61,3 +64,6 @@ jobs:
 
       - name: Check Rust
         run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Test Rust
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib

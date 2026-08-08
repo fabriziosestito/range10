@@ -4,14 +4,15 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 
-use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_blec::models::WriteType;
 use tauri_plugin_blec::{get_handler, Handler, OnDisconnectHandler};
-use tauri_plugin_tts::{QueueMode, SpeakRequest, TtsExt};
-use tenover::proto::{BallData, ClubData, SwingData};
-use tenover::{Client, Event, ShotData, Transport};
+use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
+
+use voice::{speak, spoken_shot, VoiceConfig, VoiceState};
+
+mod voice;
 
 const MULTILINK_SERVICE: Uuid = uuid!("6a4e2800-667b-11e3-949a-0800200c9a66");
 const REGISTER_CHARACTERISTIC: Uuid = uuid!("6a4e2810-667b-11e3-949a-0800200c9a66");
@@ -20,69 +21,6 @@ const DATA_CHARACTERISTIC: Uuid = uuid!("6a4e2820-667b-11e3-949a-0800200c9a66");
 #[derive(Default)]
 struct SessionState {
     stop: Mutex<Option<Sender<()>>>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VoiceConfig {
-    #[serde(default = "default_voice_enabled")]
-    voice_enabled: bool,
-    #[serde(default = "default_units")]
-    units: String,
-    #[serde(default)]
-    metrics: EnabledMetrics,
-}
-
-impl Default for VoiceConfig {
-    fn default() -> Self {
-        Self {
-            voice_enabled: default_voice_enabled(),
-            units: default_units(),
-            metrics: EnabledMetrics::default(),
-        }
-    }
-}
-
-fn default_voice_enabled() -> bool {
-    true
-}
-
-fn default_units() -> String {
-    "imperial".into()
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
-#[serde(default)]
-struct EnabledMetrics {
-    club_speed: bool,
-    path: bool,
-    face: bool,
-    attack: bool,
-    tempo: bool,
-    launch: bool,
-    ball_speed: bool,
-    spin: bool,
-}
-
-impl Default for EnabledMetrics {
-    fn default() -> Self {
-        Self {
-            club_speed: true,
-            path: true,
-            face: false,
-            attack: true,
-            tempo: true,
-            launch: false,
-            ball_speed: false,
-            spin: false,
-        }
-    }
-}
-
-#[derive(Default)]
-struct VoiceState {
-    config: Mutex<VoiceConfig>,
 }
 
 #[tauri::command]
@@ -131,118 +69,6 @@ impl Transport for BlecTransport {
         ))
         .map_err(|error| io::Error::other(error.to_string()))
     }
-}
-
-fn speak(app: &AppHandle, text: String) {
-    if let Err(error) = app.tts().speak(SpeakRequest {
-        text,
-        language: Some("en-US".into()),
-        voice_id: None,
-        rate: 1.0,
-        pitch: 1.0,
-        volume: 1.0,
-        queue_mode: QueueMode::Flush,
-    }) {
-        log::warn!("TTS speak failed: {error}");
-    }
-}
-
-fn tempo_of(swing: Option<SwingData>) -> f32 {
-    match swing {
-        Some(swing)
-            if swing.downswing_start > swing.backswing_start
-                && swing.impact > swing.downswing_start =>
-        {
-            ((swing.downswing_start - swing.backswing_start) as f32)
-                / ((swing.impact - swing.downswing_start) as f32)
-        }
-        _ => 0.0,
-    }
-}
-
-fn format_speed(mph: f32, units: &str) -> String {
-    let value = if units == "metric" {
-        mph * 1.60934
-    } else {
-        mph
-    };
-    let unit = if units == "metric" {
-        "kilometers per hour"
-    } else {
-        "miles per hour"
-    };
-    format!("{value:.1} {unit}")
-}
-
-fn format_degrees(value: f32) -> String {
-    format!("{value:.1} degrees")
-}
-
-fn format_tempo(ratio: f32) -> String {
-    let rounded = (ratio * 10.0).round() / 10.0;
-    if rounded.fract() == 0.0 {
-        format!("{rounded:.0}:1")
-    } else {
-        format!("{rounded:.1}:1")
-    }
-}
-
-fn spoken_shot(shot: &ShotData, config: &VoiceConfig) -> String {
-    let metrics = &config.metrics;
-    let units = &config.units;
-    let ball: Option<BallData> = shot.ball;
-    let club: Option<ClubData> = shot.club;
-    let swing: Option<SwingData> = shot.swing;
-    let mut parts: Vec<String> = Vec::new();
-
-    if metrics.club_speed {
-        let mph = club.map_or(0.0, |c| c.club_head_speed * 2.23694);
-        parts.push(format!("Club speed {}", format_speed(mph, units)));
-    }
-    if metrics.path {
-        parts.push(format!(
-            "Club path {}",
-            format_degrees(club.map_or(0.0, |c| c.path_angle))
-        ));
-    }
-    if metrics.face {
-        parts.push(format!(
-            "Face angle {}",
-            format_degrees(club.map_or(0.0, |c| c.face_angle))
-        ));
-    }
-    if metrics.attack {
-        parts.push(format!(
-            "Attack angle {}",
-            format_degrees(club.map_or(0.0, |c| c.attack_angle))
-        ));
-    }
-    if metrics.tempo {
-        let tempo = tempo_of(swing);
-        parts.push(if tempo > 0.0 {
-            format!("Tempo {}", format_tempo(tempo))
-        } else {
-            "Tempo unavailable".into()
-        });
-    }
-    if metrics.launch {
-        parts.push(format!(
-            "Launch angle {}",
-            format_degrees(ball.map_or(0.0, |b| b.launch_angle))
-        ));
-    }
-    if metrics.ball_speed {
-        let mph = ball.map_or(0.0, |b| b.ball_speed * 2.23694);
-        parts.push(format!("Ball speed {}", format_speed(mph, units)));
-    }
-    if metrics.spin {
-        parts.push(format!(
-            "Total spin {} RPM",
-            ball.map_or(0.0, |b| b.total_spin)
-        ));
-    }
-
-    parts.join(". ")
 }
 
 #[tauri::command]

@@ -32,12 +32,20 @@ import { Switch } from '@/components/ui/switch'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-
-type MetricKey = 'clubSpeed' | 'path' | 'face' | 'attack' | 'tempo' | 'launch' | 'ballSpeed' | 'spin'
+import {
+  calculateTempo,
+  connectionTitle,
+  displayDeviceName,
+  errorMessage,
+  formatMetric,
+  formatTempo,
+  type ConnectionPhase,
+  type MetricKey,
+  type R10Shot,
+  type Shot,
+} from '@/lib/format'
 
 type Tab = 'stats' | 'log' | 'view' | 'settings'
-
-type ConnectionPhase = 'idle' | 'scanning' | 'selecting' | 'connecting' | 'ready' | 'error'
 
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'stats', label: 'Stats', icon: Gauge },
@@ -45,25 +53,6 @@ const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'view', label: 'View', icon: Box },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
-
-type Shot = {
-  id: number
-  clubSpeed: number
-  path: number
-  face: number
-  attack: number
-  tempo: number
-  launch: number
-  ballSpeed: number
-  spin: number
-}
-
-type R10Shot = {
-  shot_id: number
-  ball?: { ball_speed: number; launch_angle: number; total_spin: number } | null
-  club?: { club_head_speed: number; path_angle: number; face_angle: number; attack_angle: number } | null
-  swing?: { backswing_start: number; downswing_start: number; impact: number } | null
-}
 
 type SavedPreferences = {
   preferredR10Address?: string
@@ -629,48 +618,10 @@ function App() {
   )
 }
 
-function formatMetric(key: MetricKey, shot: Shot, units: 'imperial' | 'metric') {
-  if (key === 'tempo') return shot.tempo ? formatTempo(shot.tempo) : 'unavailable'
-  if (key === 'clubSpeed' || key === 'ballSpeed') return `${(units === 'imperial' ? shot[key] : shot[key] * 1.60934).toFixed(1)} ${units === 'imperial' ? 'miles per hour' : 'kilometers per hour'}`
-  if (key === 'spin') return `${shot.spin} RPM`
-  return `${shot[key].toFixed(1)} degrees`
-}
-
-function errorMessage(error: unknown, fallback: string) {
-  if (error instanceof Error) return error.message
-  if (typeof error === 'string') return error
-  return fallback
-}
-
-function connectionTitle(phase: ConnectionPhase) {
-  if (phase === 'scanning') return 'Finding your R10'
-  if (phase === 'selecting') return 'Choose your R10'
-  if (phase === 'ready') return 'R10 is ready'
-  if (phase === 'error') return 'Connection needs attention'
-  if (phase === 'idle') return 'Connect your R10'
-  if (phase === 'connecting') return 'Connecting to your R10'
-  return 'Connect your R10'
-}
-
-function calculateTempo(swing: R10Shot['swing']) {
-  if (!swing) return 0
-  const backswing = swing.downswing_start - swing.backswing_start
-  const downswing = swing.impact - swing.downswing_start
-  return backswing > 0 && downswing > 0 ? backswing / downswing : 0
-}
+export default App
 
 function isTauriRuntime() {
   return Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
-}
-
-function displayDeviceName(device: BleDevice) {
-  const name = device.name || ''
-  return name.toLowerCase().includes('approach') ? 'Approach R10' : name || 'Approach R10'
-}
-
-function formatTempo(ratio: number) {
-  const rounded = Math.round(ratio * 10) / 10
-  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}:1`
 }
 
 function Brand() {
@@ -704,5 +655,3 @@ function Metric({ label, value, tone }: { label: string; value: string; tone: st
     </div>
   )
 }
-
-export default App
