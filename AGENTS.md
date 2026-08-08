@@ -46,6 +46,9 @@
   `APPLE_DEVELOPMENT_TEAM` environment variable.
 - Treat iOS project regeneration as destructive. Preserve Bluetooth usage text,
   CoreBluetooth, background modes, entitlements, and project build scripts.
+- The Xcode project `src-tauri/gen/apple/app.xcodeproj` is generated output and
+  must stay untracked; low-level signing needed during iOS builds is injected
+  only into that local generated project.
 - Do not add `dist`, `node_modules`, `src-tauri/target`, Apple `build`, Apple
   `Externals`, or generated Tauri schemas to version control.
 

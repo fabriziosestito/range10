@@ -60,11 +60,18 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 ```
 
 Initialize the generated iOS project when required (one-time, destructive —
-it regenerates the tracked `src-tauri/gen/apple` project):
+it regenerates `src-tauri/gen/apple`):
 
 ```sh
 npx tauri ios init
 ```
+
+The Xcode project `src-tauri/gen/apple/app.xcodeproj` is generated output and
+is not tracked. `tauri ios build` regenerates it from the tracked
+`src-tauri/gen/apple/project.yml` (XcodeGen) on every build, so no manual step
+is needed for normal development. The tracked `app_iOS/` directory holds the
+customizations (Bluetooth usage text, entitlements, sources); preserve them
+when regenerating the project.
 
 Tauri requires an installed iOS Simulator runtime even for physical-device
 builds. Install one from Xcode or run (one-time):
@@ -86,6 +93,11 @@ Replace `YOUR_APPLE_TEAM_ID` with the Team ID shown in your Apple Developer
 account. `src-tauri/tauri.ios.conf.json` is ignored and is merged automatically
 for iOS commands. CI may use the `APPLE_DEVELOPMENT_TEAM` environment variable
 instead.
+
+The Team ID is injected into the untracked generated
+`src-tauri/gen/apple/app.xcodeproj` on each build, so `git status` stays clean
+and the Team ID never appears in tracked files. Do not force-add the generated
+project back into version control.
 
 Add your Apple ID under **Xcode > Settings > Accounts**. Automatic signing is
 enabled by default. A free Personal Team can work for device testing, but its
