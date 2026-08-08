@@ -294,6 +294,7 @@ function App() {
   const speedUnit = units === 'imperial' ? 'mph' : 'km/h'
   const convertSpeed = (value: number) => units === 'imperial' ? value : value * 1.60934
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
+  const hasShot = shot.id > 0
 
   const speechPreview = useMemo(() => {
     const values = Object.entries(enabledMetrics)
@@ -487,25 +488,23 @@ function App() {
         <main className="min-h-0 overflow-hidden p-4 sm:p-6 lg:p-8">
           <div className="mx-auto h-full max-w-6xl">
             <TabsContent value="stats" className="h-full">
-              {shot.id ? (
-                <Card className="sage-shadow relative flex h-full overflow-hidden border-primary/20 bg-[linear-gradient(145deg,var(--card),color-mix(in_srgb,var(--accent)_24%,var(--card)))]">
-                  <div className="pointer-events-none absolute -right-20 -top-28 size-80 rounded-full border border-primary/10 bg-primary/5" />
-                  <CardHeader className="relative flex-row items-center justify-between pb-1 sm:p-7">
-                    <div><p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">Latest shot</p><CardDescription className="mt-1">Club head speed</CardDescription></div>
-                    <Badge variant="outline" className="border-primary/30 font-mono text-primary">#{shot.id}</Badge>
-                  </CardHeader>
-                  <CardContent className="relative flex min-h-0 flex-1 flex-col justify-center pb-5 sm:px-7 sm:pb-7">
-                    <div className="flex items-end gap-3"><strong className="font-serif text-[clamp(4.25rem,18vw,9rem)] font-normal leading-[0.75] tracking-[-0.08em]">{convertSpeed(shot.clubSpeed).toFixed(1)}</strong><span className="mb-1 font-mono text-sm uppercase text-primary">{speedUnit}</span></div>
-                    <Separator className="my-5 sm:my-8" />
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
-                      <Metric label="Path" value={`${shot.path.toFixed(1)}°`} tone="bg-chart-2" />
-                      <Metric label="Face" value={`${shot.face.toFixed(1)}°`} tone="bg-chart-3" />
-                      <Metric label="Attack" value={`${shot.attack.toFixed(1)}°`} tone="bg-chart-4" />
-                      <Metric label="Tempo" value={shot.tempo ? formatTempo(shot.tempo) : '—'} tone="bg-chart-5" />
-                    </div>
-                  </CardContent>
-                </Card>
-              ) : <EmptyState icon={Activity} title="Waiting for your first shot" description={connected ? 'Your live stats will appear here after your next swing.' : 'Connect your Approach R10, then take a shot.'} />}
+              <Card className="sage-shadow relative flex h-full overflow-hidden border-primary/20 bg-[linear-gradient(145deg,var(--card),color-mix(in_srgb,var(--accent)_24%,var(--card)))]">
+                <div className="pointer-events-none absolute -right-20 -top-28 size-80 rounded-full border border-primary/10 bg-primary/5" />
+                <CardHeader className="relative flex-row items-center justify-between pb-1 sm:p-7">
+                  <div><p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">Latest shot</p><CardDescription className="mt-1">{hasShot ? 'Club head speed' : 'Waiting for your first shot'}</CardDescription></div>
+                  <Badge variant="outline" className="border-primary/30 font-mono text-primary">{hasShot ? `#${shot.id}` : '--'}</Badge>
+                </CardHeader>
+                <CardContent className="relative flex min-h-0 flex-1 flex-col justify-center pb-5 sm:px-7 sm:pb-7">
+                  <div className="flex items-end gap-3"><strong className="font-serif text-[clamp(4.25rem,18vw,9rem)] font-normal leading-[0.75] tracking-[-0.08em]">{hasShot ? convertSpeed(shot.clubSpeed).toFixed(1) : '--'}</strong><span className="mb-1 font-mono text-sm uppercase text-primary">{speedUnit}</span></div>
+                  <Separator className="my-5 sm:my-8" />
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+                    <Metric label="Path" value={hasShot ? `${shot.path.toFixed(1)}°` : '--'} tone="bg-chart-2" />
+                    <Metric label="Face" value={hasShot ? `${shot.face.toFixed(1)}°` : '--'} tone="bg-chart-3" />
+                    <Metric label="Attack" value={hasShot ? `${shot.attack.toFixed(1)}°` : '--'} tone="bg-chart-4" />
+                    <Metric label="Tempo" value={hasShot && shot.tempo ? formatTempo(shot.tempo) : '--'} tone="bg-chart-5" />
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             <TabsContent value="log" className="h-full">
@@ -527,19 +526,43 @@ function App() {
             </TabsContent>
 
             <TabsContent value="settings" className="h-full">
-              <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[1.35fr_0.65fr] lg:gap-5">
-                <Card className="min-h-0 overflow-hidden">
-                  <CardHeader className="flex-row items-center justify-between py-4"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Spoken metrics</CardTitle><CardDescription className="mt-1">Choose what is called out.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
-                  <CardContent className="grid grid-cols-2 gap-x-4 px-4 pb-4 sm:px-6">
-                    {(Object.keys(metricLabels) as MetricKey[]).map((key) => <label key={key} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 border-t border-border py-2.5"><span className="truncate text-xs font-medium sm:text-sm">{metricLabels[key]}</span><Switch checked={enabledMetrics[key]} onCheckedChange={() => toggleMetric(key)} aria-label={`Speak ${metricLabels[key]}`} /></label>)}
-                  </CardContent>
-                </Card>
+              <Card className="flex h-full min-h-0 flex-col overflow-hidden">
+                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
+                <Separator />
+                <CardContent className="min-h-0 flex-1 overflow-y-auto p-0">
+                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+                    <div>
+                      <p className="text-sm font-semibold">Units</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">How speeds are displayed and spoken.</p>
+                    </div>
+                    <ToggleGroup type="single" value={units} onValueChange={(value) => { if (value) setUnits(value as 'imperial' | 'metric') }} aria-label="Measurement units"><ToggleGroupItem value="imperial">US</ToggleGroupItem><ToggleGroupItem value="metric">Metric</ToggleGroupItem></ToggleGroup>
+                  </section>
 
-                <div className="grid min-h-0 grid-rows-[auto_1fr] gap-3 lg:gap-5">
-                  <Card><CardContent className="space-y-3 p-4"><div className="flex items-center justify-between gap-3"><span className="text-sm font-semibold">Units</span><ToggleGroup type="single" value={units} onValueChange={(value) => { if (value) setUnits(value as 'imperial' | 'metric') }} aria-label="Measurement units"><ToggleGroupItem value="imperial">US</ToggleGroupItem><ToggleGroupItem value="metric">Metric</ToggleGroupItem></ToggleGroup></div><Separator /><label className="flex cursor-pointer items-center justify-between gap-3"><span className="text-sm font-semibold">Voice output</span><Switch checked={voiceEnabled} onCheckedChange={setVoiceEnabled} aria-label="Voice output" /></label></CardContent></Card>
-                  <Card className="min-h-0 border-primary/20 bg-accent/15"><CardContent className="flex h-full items-center gap-3 p-4"><div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"><Volume2 className="size-4" /></div><p className="line-clamp-3 min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">{speechPreview}</p><Button size="icon" variant={previewSpeaking ? 'secondary' : 'default'} onClick={togglePreview} aria-label={previewSpeaking ? 'Stop preview' : 'Play preview'}>{previewSpeaking ? <Pause /> : <Play />}</Button></CardContent></Card>
-                </div>
-              </div>
+                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+                    <div>
+                      <p className="text-sm font-semibold">Voice output</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Announce results after each swing.</p>
+                    </div>
+                    <Switch checked={voiceEnabled} onCheckedChange={setVoiceEnabled} aria-label="Voice output" />
+                  </section>
+
+                  <section className="px-4 py-4 sm:px-6">
+                    <p className="text-sm font-semibold">Spoken metrics</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Choose what is called out after a shot.</p>
+                    <div className="mt-3 grid grid-cols-2 gap-x-4 border-t border-border">
+                      {(Object.keys(metricLabels) as MetricKey[]).map((key) => <label key={key} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 border-b border-border py-2.5"><span className="truncate text-xs font-medium sm:text-sm">{metricLabels[key]}</span><Switch checked={enabledMetrics[key]} onCheckedChange={() => toggleMetric(key)} aria-label={`Speak ${metricLabels[key]}`} /></label>)}
+                    </div>
+                    <div className="mt-3 flex items-center gap-3 rounded-xl border border-primary/20 bg-accent/15 p-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"><Volume2 className="size-4" /></div>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-semibold">Voice preview</p>
+                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{speechPreview}</p>
+                      </div>
+                      <Button size="icon" variant={previewSpeaking ? 'secondary' : 'default'} onClick={togglePreview} aria-label={previewSpeaking ? 'Stop preview' : 'Play preview'}>{previewSpeaking ? <Pause /> : <Play />}</Button>
+                    </div>
+                  </section>
+                </CardContent>
+              </Card>
             </TabsContent>
           </div>
         </main>
