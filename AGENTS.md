@@ -49,6 +49,16 @@
 - Do not add `dist`, `node_modules`, `src-tauri/target`, Apple `build`, Apple
   `Externals`, or generated Tauri schemas to version control.
 
+## Commits
+
+- Sign every commit with the project GPG key and add the Signed-off-by trailer
+  (`git commit -S -s`).
+- Use one-sentence conventional subjects (`fix:`, `feat:`, `test:`, `docs:`,
+  `refactor:`, `revert:`, ...).
+- Stage only intended files; commit and push to `main` when the user asks or
+  after completing a unit of work.
+- Run `make check` and `make test` before committing.
+
 ## Validation
 
 Run before completing code changes:
