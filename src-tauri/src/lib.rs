@@ -7,6 +7,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_blec::models::WriteType;
 use tauri_plugin_blec::{get_handler, Handler, OnDisconnectHandler};
+use tenover::proto::ShotConfig;
 use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
 
@@ -18,9 +19,22 @@ const MULTILINK_SERVICE: Uuid = uuid!("6a4e2800-667b-11e3-949a-0800200c9a66");
 const REGISTER_CHARACTERISTIC: Uuid = uuid!("6a4e2810-667b-11e3-949a-0800200c9a66");
 const DATA_CHARACTERISTIC: Uuid = uuid!("6a4e2820-667b-11e3-949a-0800200c9a66");
 
-#[derive(Default)]
+const DEFAULT_TEE_DISTANCE_YARDS: f32 = 2.3;
+
 struct SessionState {
     stop: Mutex<Option<Sender<()>>>,
+    tee: Mutex<Option<Sender<f32>>>,
+    tee_yards: Mutex<f32>,
+}
+
+impl Default for SessionState {
+    fn default() -> Self {
+        Self {
+            stop: Mutex::new(None),
+            tee: Mutex::new(None),
+            tee_yards: Mutex::new(DEFAULT_TEE_DISTANCE_YARDS),
+        }
+    }
 }
 
 #[tauri::command]
@@ -29,6 +43,24 @@ fn set_voice_config(state: State<'_, VoiceState>, config: VoiceConfig) -> Result
         .config
         .lock()
         .map_err(|_| "voice config lock poisoned".to_string())? = config;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_tee_distance(state: State<'_, SessionState>, yards: f32) -> Result<(), String> {
+    let mut tee_yards = state
+        .tee_yards
+        .lock()
+        .map_err(|_| "session state lock poisoned".to_string())?;
+    *tee_yards = yards;
+    if let Some(tee) = state
+        .tee
+        .lock()
+        .map_err(|_| "session state lock poisoned".to_string())?
+        .as_ref()
+    {
+        let _ = tee.send(yards);
+    }
     Ok(())
 }
 
@@ -104,6 +136,12 @@ async fn start_r10(
         .lock()
         .map_err(|_| "session state lock poisoned".to_string())?
         .replace(stop_tx);
+    let (tee_tx, tee_rx) = mpsc::channel();
+    state
+        .tee
+        .lock()
+        .map_err(|_| "session state lock poisoned".to_string())?
+        .replace(tee_tx);
 
     thread::Builder::new()
         .name("r10-session".into())
@@ -120,6 +158,18 @@ async fn start_r10(
             loop {
                 if stop_rx.try_recv().is_ok() {
                     break;
+                }
+                if client.phase() == "active" {
+                    while let Ok(yards) = tee_rx.try_recv() {
+                        let config = ShotConfig {
+                            tee_range: Some(yards),
+                            ..ShotConfig::default()
+                        };
+                        if let Err(error) = client.send_shot_config(&config) {
+                            let _ = app.emit("r10://error", error.to_string());
+                            break;
+                        }
+                    }
                 }
                 match client.poll() {
                     Ok(Some(Event::Registered { .. })) => {
@@ -144,6 +194,19 @@ async fn start_r10(
                     }
                     Ok(Some(Event::Ready)) => {
                         let _ = app.emit("r10://ready", ());
+                        let yards = app
+                            .state::<SessionState>()
+                            .tee_yards
+                            .lock()
+                            .map(|state| *state)
+                            .unwrap_or(DEFAULT_TEE_DISTANCE_YARDS);
+                        let config = ShotConfig {
+                            tee_range: Some(yards),
+                            ..ShotConfig::default()
+                        };
+                        if let Err(error) = client.send_shot_config(&config) {
+                            let _ = app.emit("r10://error", error.to_string());
+                        }
                         let voice_enabled = app
                             .state::<VoiceState>()
                             .config
@@ -152,6 +215,14 @@ async fn start_r10(
                             .unwrap_or(false);
                         if voice_enabled {
                             speak(&app, "Ready".into());
+                        }
+                    }
+                    Ok(Some(Event::ShotConfigResponse { success })) => {
+                        if !success {
+                            log::warn!("R10 rejected tee distance configuration");
+                            let _ = app.emit("r10://error", "tee config rejected".to_string());
+                        } else {
+                            log::info!("R10 accepted tee distance configuration");
                         }
                     }
                     Ok(Some(Event::DeviceError(error))) => {
@@ -210,6 +281,7 @@ pub fn run() {
             start_r10,
             stop_r10,
             set_voice_config,
+            set_tee_distance,
             connection_info
         ])
         .run(tauri::generate_context!())

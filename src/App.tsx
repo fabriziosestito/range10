@@ -14,8 +14,10 @@ import {
   Gauge,
   List,
   LoaderCircle,
+  Minus,
   Pause,
   Play,
+  Plus,
   Radio,
   Settings,
   SlidersHorizontal,
@@ -38,6 +40,7 @@ import {
   displayDeviceName,
   errorMessage,
   formatMetric,
+  formatTeeDistance,
   formatTempo,
   type ConnectionPhase,
   type MetricKey,
@@ -59,6 +62,7 @@ type SavedPreferences = {
   enabledMetrics?: Record<MetricKey, boolean>
   voiceEnabled?: boolean
   units?: 'imperial' | 'metric'
+  teeDistance?: number
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -84,6 +88,11 @@ const defaultEnabledMetrics: Record<MetricKey, boolean> = {
 }
 
 const settingsStore = new LazyStore('settings.json')
+
+const TEE_DISTANCE_DEFAULT = 2.3
+const TEE_DISTANCE_MIN = 2.0
+const TEE_DISTANCE_MAX = 2.6
+const TEE_DISTANCE_STEP = 0.1
 
 const initialShot: Shot = {
   id: 0,
@@ -122,6 +131,7 @@ function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
+  const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
   const [enabledMetrics, setEnabledMetrics] = useState<Record<MetricKey, boolean>>(defaultEnabledMetrics)
@@ -170,6 +180,7 @@ function App() {
         if (saved.enabledMetrics) setEnabledMetrics({ ...defaultEnabledMetrics, ...saved.enabledMetrics })
         if (typeof saved.voiceEnabled === 'boolean') setVoiceEnabled(saved.voiceEnabled)
         if (saved.units) setUnits(saved.units)
+        if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
       } finally {
         if (active) setSettingsLoaded(true)
       }
@@ -179,9 +190,10 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
-    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units })
+    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
-  }, [enabledMetrics, preferredR10Address, settingsLoaded, units, voiceEnabled])
+    void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
+  }, [enabledMetrics, preferredR10Address, settingsLoaded, teeDistance, units, voiceEnabled])
 
   useEffect(() => {
     const onShot = (event: Event) => {
@@ -516,7 +528,7 @@ function App() {
 
             <TabsContent value="settings" className="h-full">
               <Card className="flex h-full min-h-0 flex-col overflow-hidden">
-                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
+                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, tee distance, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
                 <Separator />
                 <CardContent className="min-h-0 flex-1 overflow-y-auto p-0">
                   <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
@@ -525,6 +537,18 @@ function App() {
                       <p className="mt-0.5 text-xs text-muted-foreground">How speeds are displayed and spoken.</p>
                     </div>
                     <ToggleGroup type="single" value={units} onValueChange={(value) => { if (value) setUnits(value as 'imperial' | 'metric') }} aria-label="Measurement units"><ToggleGroupItem value="imperial">US</ToggleGroupItem><ToggleGroupItem value="metric">Metric</ToggleGroupItem></ToggleGroup>
+                  </section>
+
+                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+                    <div>
+                      <p className="text-sm font-semibold">Tee distance</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{units === 'imperial' ? 'Distance from the unit to the ball in yards.' : 'Distance from the unit to the ball in meters.'}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button size="icon" variant="outline" onClick={() => setTeeDistance((current) => Math.max(TEE_DISTANCE_MIN, Math.round((current - TEE_DISTANCE_STEP) * 10) / 10))} disabled={teeDistance <= TEE_DISTANCE_MIN} aria-label="Decrease tee distance"><Minus className="size-4" /></Button>
+                      <span className="w-14 text-center text-sm font-semibold tabular-nums">{formatTeeDistance(teeDistance, units)}</span>
+                      <Button size="icon" variant="outline" onClick={() => setTeeDistance((current) => Math.min(TEE_DISTANCE_MAX, Math.round((current + TEE_DISTANCE_STEP) * 10) / 10))} disabled={teeDistance >= TEE_DISTANCE_MAX} aria-label="Increase tee distance"><Plus className="size-4" /></Button>
+                    </div>
                   </section>
 
                   <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">

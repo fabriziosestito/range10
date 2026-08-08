@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, formatMetric, formatTempo, type Shot } from './format'
+import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, formatMetric, formatTeeDistance, formatTempo, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
@@ -95,5 +95,26 @@ describe('displayDeviceName', () => {
   it('falls back for other names', () => {
     expect(displayDeviceName({ name: 'R10' })).toBe('R10')
     expect(displayDeviceName({ name: '' })).toBe('Approach R10')
+  })
+})
+
+describe('yardsToMeters', () => {
+  it('converts the default tee distance to Garmin meters', () => {
+    expect(yardsToMeters(2.3)).toBeCloseTo(2.1, 1)
+  })
+
+  it('maps the range endpoints to 1.8–2.4 m', () => {
+    expect(yardsToMeters(2.0)).toBeCloseTo(1.8, 1)
+    expect(yardsToMeters(2.6)).toBeCloseTo(2.4, 1)
+  })
+})
+
+describe('formatTeeDistance', () => {
+  it('labels imperial values in yards', () => {
+    expect(formatTeeDistance(2.3, 'imperial')).toBe('2.3 yd')
+  })
+
+  it('converts and labels metric values in meters', () => {
+    expect(formatTeeDistance(2.3, 'metric')).toBe('2.1 m')
   })
 })

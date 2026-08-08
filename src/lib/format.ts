@@ -35,6 +35,18 @@ export function formatTempo(ratio: number) {
   return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}:1`
 }
 
+export const YARDS_TO_METERS = 0.9144
+
+export function yardsToMeters(yards: number) {
+  return yards * YARDS_TO_METERS
+}
+
+export function formatTeeDistance(yards: number, units: 'imperial' | 'metric') {
+  const value = units === 'imperial' ? yards : yardsToMeters(yards)
+  const unit = units === 'imperial' ? 'yd' : 'm'
+  return `${value.toFixed(1)} ${unit}`
+}
+
 export function calculateTempo(swing: R10Shot['swing']) {
   if (!swing) return 0
   const backswing = swing.downswing_start - swing.backswing_start

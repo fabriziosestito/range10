@@ -24,6 +24,6 @@ tauri-plugin-log = "2"
 tauri-plugin-blec = "0.12"
 tauri-plugin-tts = "0.1"
 tauri-plugin-store = "2"
-tenover = { version = "0.0.2", features = ["serde"] }
+tenover = { git = "https://github.com/fabriziosestito/10over", rev = "834de5961e42d449530413a9955fada86aee146c", features = ["serde"] }
 tokio = { version = "1", features = ["sync", "time"] }
 uuid = "1"
