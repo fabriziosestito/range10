@@ -143,6 +143,17 @@ async fn start_r10(
         .map_err(|_| "session state lock poisoned".to_string())?
         .replace(tee_tx);
 
+    let (voice_tx, voice_rx) = mpsc::channel::<String>();
+    let voice_app = app.clone();
+    thread::Builder::new()
+        .name("r10-voice".into())
+        .spawn(move || {
+            while let Ok(text) = voice_rx.recv() {
+                speak(&voice_app, text);
+            }
+        })
+        .map_err(|error| error.to_string())?;
+
     thread::Builder::new()
         .name("r10-session".into())
         .spawn(move || {
@@ -181,19 +192,16 @@ async fn start_r10(
                     Ok(Some(Event::Subscribed { .. })) => {
                         let _ = app.emit("r10://stage", "subscribed");
                     }
-                    Ok(Some(Event::WakeUpResponse { .. })) => {
-                        let _ = app.emit("r10://stage", "waking");
-                    }
                     Ok(Some(Event::Shot(shot))) => {
                         let _ = app.emit("r10://shot", &shot);
                         if let Ok(config) = app.state::<VoiceState>().config.lock() {
                             if config.voice_enabled {
-                                speak(&app, spoken_shot(&shot, &config));
+                                let _ = voice_tx.send(spoken_shot(&shot, &config));
                             }
                         }
                     }
-                    Ok(Some(Event::Ready)) => {
-                        let _ = app.emit("r10://ready", ());
+                    Ok(Some(Event::WakeUpResponse { .. })) => {
+                        let _ = app.emit("r10://stage", "waking");
                         let yards = app
                             .state::<SessionState>()
                             .tee_yards
@@ -206,15 +214,6 @@ async fn start_r10(
                         };
                         if let Err(error) = client.send_shot_config(&config) {
                             let _ = app.emit("r10://error", error.to_string());
-                        }
-                        let voice_enabled = app
-                            .state::<VoiceState>()
-                            .config
-                            .lock()
-                            .map(|config| config.voice_enabled)
-                            .unwrap_or(false);
-                        if voice_enabled {
-                            speak(&app, "Ready".into());
                         }
                     }
                     Ok(Some(Event::ShotConfigResponse { success })) => {
