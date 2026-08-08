@@ -19,31 +19,28 @@ npm install
 
 ## Development
 
-Run the browser UI:
-
-```sh
-npm run dev
-```
-
 Browser mode is useful for interface work but does not provide real BLE,
 protocol, or shot data. Run the desktop Tauri app for native integration:
 
 ```sh
-make run
+make macos-dev
 ```
 
 Useful commands:
 
 ```sh
-make check       # Lint, frontend build, Rust format, clippy, and cargo check
-make bundle      # Build the macOS application bundle
-make run-app     # Open an existing release bundle without rebuilding
-make install     # Build and install /Applications/range10.app
-make clean       # Remove frontend and Rust build output
+make lint            # Fast static checks (eslint + clippy)
+make check           # Lint, frontend build, Rust format, clippy, and cargo check
+make test            # Frontend (vitest) and Rust unit tests
+make macos-build     # Build the macOS application bundle
+make macos-run       # Open an existing bundle without rebuilding
+make macos-install   # Build and install /Applications/range10.app
+make clean           # Remove frontend and Rust build output
+make help            # List all targets grouped by platform
 ```
 
-There is currently no automated test suite. `make check` performs static and
-build verification only.
+`make check` performs static and build verification. `make test` runs the
+automated test suite.
 
 ## iOS Setup
 
@@ -62,17 +59,18 @@ brew install cocoapods xcodegen libimobiledevice ios-deploy protobuf
 rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
 ```
 
-Initialize the generated iOS project when required:
+Initialize the generated iOS project when required (one-time, destructive —
+it regenerates the tracked `src-tauri/gen/apple` project):
 
 ```sh
-make ios-init
+npx tauri ios init
 ```
 
 Tauri requires an installed iOS Simulator runtime even for physical-device
-builds. Install one from Xcode or run:
+builds. Install one from Xcode or run (one-time):
 
 ```sh
-make ios-runtime
+xcodebuild -downloadPlatform iOS
 ```
 
 ## Local Apple Signing
@@ -113,15 +111,15 @@ make ios-list
 Run or install on a physical device:
 
 ```sh
-make ios
-make ios-device DEVICE="Your iPhone name or UDID"
+make ios-dev
+make ios-run DEVICE="Your iPhone name or UDID"
 ```
 
 Build or sideload a debugging IPA:
 
 ```sh
-make ios-ipa
-make ios-sideload DEVICE="Your device UDID"
+make ios-build
+make ios-install DEVICE="Your device UDID"
 ```
 
 ## R10 Hardware Notes

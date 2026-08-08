@@ -86,5 +86,6 @@ cargo check --manifest-path src-tauri/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 ```
 
-Use `make run` for the incremental desktop development loop. Real BLE and R10
-behavior must be verified in Tauri with hardware; browser mode is insufficient.
+Use `make macos-dev` for the incremental desktop development loop. Real BLE
+and R10 behavior must be verified in Tauri with hardware; browser mode is
+insufficient. Use `make help` to list all supported targets.

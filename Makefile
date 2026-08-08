@@ -6,30 +6,19 @@ INSTALL_PATH := /Applications/$(APP_NAME).app
 IOS_IPA := src-tauri/gen/apple/build/arm64/range10.ipa
 IOS_EXTRACT := /tmp/range10-ios-sideload
 
-.PHONY: install install-deps dev run run-app web check test format build bundle install-app ios ios-init ios-list ios-runtime ios-device ios-ipa ipa ios-sideload clean
+.PHONY: deps lint check test format clean help macos-dev macos-build macos-install macos-run ios-dev ios-build ios-install ios-run ios-list
 
-install-deps:
-	npm install
+## Shared targets.
+
+deps: node_modules/.package-lock.json
 
 node_modules/.package-lock.json: package-lock.json
 	npm ci
 
-dev:
-	npm run tauri:dev
-
-# Incremental debug build and launch. This is the fastest development loop.
-run: dev
-
-# Launch the existing release bundle without rebuilding or reinstalling it.
-run-app:
-	@test -d "$(APP_BUNDLE)" || (printf 'App bundle not found. Run make bundle first.\n' && exit 1)
-	@open "$(APP_BUNDLE)"
-
-web:
-	npm run dev
-
-format:
-	cargo fmt --manifest-path src-tauri/Cargo.toml --all
+# Fast static checks only.
+lint:
+	npm run lint
+	cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
 
 check:
 	npm run lint
@@ -42,47 +31,81 @@ test:
 	npm run test
 	cargo test --manifest-path src-tauri/Cargo.toml --lib
 
-build:
-	npm run build
+format:
+	cargo fmt --manifest-path src-tauri/Cargo.toml --all
 
-bundle:
+clean:
+	rm -rf dist src-tauri/target
+
+## macOS.
+
+# Incremental desktop development loop with hot reload.
+macos-dev:
+	npm run tauri:dev
+
+# Release .app bundle.
+macos-build:
 	npm run tauri:build -- --bundles app
 
-install-app: bundle
+# Build, install into /Applications, and open range10.
+macos-install: macos-build
 	@osascript -e 'tell application "$(APP_NAME)" to quit' 2>/dev/null || true
 	@rm -rf "$(INSTALL_PATH)"
 	@ditto "$(APP_BUNDLE)" "$(INSTALL_PATH)"
 	@open "$(INSTALL_PATH)"
 	@printf 'Installed %s\n' "$(INSTALL_PATH)"
 
-install: install-app
+# Open an existing release bundle without rebuilding or reinstalling it.
+macos-run:
+	@test -d "$(APP_BUNDLE)" || (printf 'App bundle not found. Run make macos-build first.\n' && exit 1)
+	@open "$(APP_BUNDLE)"
 
-ios:
+## iOS.
+
+ios-dev:
 	npm run tauri:ios
 
-ios-init:
-	npx tauri ios init
-
-ios-list:
-	xcrun devicectl list devices
-
-ios-runtime:
-	xcodebuild -downloadPlatform iOS
-
-ios-device:
-	@test -n "$(DEVICE)" || (printf 'Usage: make ios-device DEVICE="Your iPhone name or UDID"\n' && exit 1)
-	npx tauri ios run --release "$(DEVICE)"
-
-ios-ipa: node_modules/.package-lock.json
+# Debugging IPA.
+ios-build: node_modules/.package-lock.json
 	npx tauri ios build --ci --export-method debugging
 
-ipa: ios-ipa
-
-ios-sideload: ios-ipa
+# Debugging IPA sideloaded onto a connected device.
+# Usage: make ios-install DEVICE="Your iPhone name or UDID"
+ios-install: ios-build
 	rm -rf "$(IOS_EXTRACT)"
 	mkdir -p "$(IOS_EXTRACT)"
 	unzip -q "$(IOS_IPA)" -d "$(IOS_EXTRACT)"
 	if [[ -n "$(DEVICE)" ]]; then ios-deploy --id "$(DEVICE)" --bundle "$(IOS_EXTRACT)/Payload/range10.app"; else ios-deploy --bundle "$(IOS_EXTRACT)/Payload/range10.app"; fi
 
-clean:
-	rm -rf dist src-tauri/target
+# Release build run on a device.
+# Usage: make ios-run DEVICE="Your iPhone name or UDID"
+ios-run:
+	@test -n "$(DEVICE)" || (printf 'Usage: make ios-run DEVICE="Your iPhone name or UDID"\n' && exit 1)
+	npx tauri ios run --release "$(DEVICE)"
+
+ios-list:
+	xcrun devicectl list devices
+
+## Help.
+
+help:
+	@echo 'Shared:'
+	@echo '  make deps        Restore npm dependencies'
+	@echo '  make lint        Fast static checks (eslint + clippy)'
+	@echo '  make check       Full pre-commit/CI verification'
+	@echo '  make test        Frontend (vitest) and Rust unit tests'
+	@echo '  make format      Format Rust source'
+	@echo '  make clean       Remove frontend and Rust build output'
+	@echo ''
+	@echo 'macOS:'
+	@echo '  make macos-dev      Tauri desktop dev loop'
+	@echo '  make macos-build    Release .app bundle'
+	@echo '  make macos-install  Build, install into /Applications, and open'
+	@echo '  make macos-run      Open existing bundle without rebuilding'
+	@echo ''
+	@echo 'iOS:'
+	@echo '  make ios-dev        Tauri iOS dev loop'
+	@echo '  make ios-build      Debugging IPA'
+	@echo '  make ios-install    Build and sideload IPA to a device'
+	@echo '  make ios-run DEVICE=...    Release run on a device'
+	@echo '  make ios-list       List connected devices'
