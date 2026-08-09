@@ -127,9 +127,11 @@ no C++ toolchain pain, voice/TTS-ready (speech lives in Rust).
    `r10://shot-metrics` event (`ShotMetrics` { shot_id, carry_yards,
    total_yards, apex_yards, offline_yards, time_of_flight }). Atmos defaults
    for the app: 70°F / 0 ft / 50% / 29.92 inHg / no wind (`DEFAULT_ATMOS`).
-3. Frontend: `Shot` gains launch_direction/backspin/sidespin (already in
-   payload); Log carry column; Stats carry metric; distance formatting via
-   existing `yardsToMeters`.
+3. ✅ Frontend: `Shot` gains carry/total fed from `r10://shot-metrics`
+   (buffered by `shot_id`); Log carry column; Stats Carry/Total tiles;
+   distance formatting via `formatDistance` (yards → meters via existing
+   `yardsToMeters`). `R10Shot` payload already carries launch_direction/
+   backspin/sidespin.
 4. "Export calibration CSV" in Log + Rust calib runner + vendored `run.py` +
    `make test` gate.
 5. Settings: env rows + profile selector + import/export.

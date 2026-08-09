@@ -12,13 +12,24 @@ export type Shot = {
   launch: number
   ballSpeed: number
   spin: number
+  carry: number
+  total: number
 }
 
 export type R10Shot = {
   shot_id: number
-  ball?: { ball_speed: number; launch_angle: number; total_spin: number } | null
+  ball?: { ball_speed: number; launch_angle: number; total_spin: number; launch_direction: number; backspin: number; sidespin: number } | null
   club?: { club_head_speed: number; path_angle: number; face_angle: number; attack_angle: number } | null
   swing?: { backswing_start: number; downswing_start: number; impact: number } | null
+}
+
+export type R10ShotMetrics = {
+  shot_id: number
+  carry_yards: number
+  total_yards: number
+  apex_yards: number
+  offline_yards: number
+  time_of_flight: number
 }
 
 export type ConnectionPhase = 'idle' | 'scanning' | 'selecting' | 'connecting' | 'ready' | 'error'
@@ -41,10 +52,15 @@ export function yardsToMeters(yards: number) {
   return yards * YARDS_TO_METERS
 }
 
-export function formatTeeDistance(yards: number, units: 'imperial' | 'metric') {
+export function formatDistance(yards: number, units: 'imperial' | 'metric') {
+  if (!yards) return '—'
   const value = units === 'imperial' ? yards : yardsToMeters(yards)
   const unit = units === 'imperial' ? 'yd' : 'm'
   return `${value.toFixed(1)} ${unit}`
+}
+
+export function formatTeeDistance(yards: number, units: 'imperial' | 'metric') {
+  return formatDistance(yards, units)
 }
 
 export function calculateTempo(swing: R10Shot['swing']) {

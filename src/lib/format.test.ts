@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, formatMetric, formatTeeDistance, formatTempo, yardsToMeters, type Shot } from './format'
+import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, formatDistance, formatMetric, formatTeeDistance, formatTempo, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
@@ -11,6 +11,8 @@ const shot: Shot = {
   launch: 16.5,
   ballSpeed: 144.8,
   spin: 2420,
+  carry: 168.5,
+  total: 174.2,
 }
 
 describe('formatMetric', () => {
@@ -106,6 +108,21 @@ describe('yardsToMeters', () => {
   it('maps the range endpoints to 1.8–2.4 m', () => {
     expect(yardsToMeters(2.0)).toBeCloseTo(1.8, 1)
     expect(yardsToMeters(2.6)).toBeCloseTo(2.4, 1)
+  })
+})
+
+describe('formatDistance', () => {
+  it('labels imperial values in yards', () => {
+    expect(formatDistance(168.5, 'imperial')).toBe('168.5 yd')
+  })
+
+  it('converts and labels metric values in meters', () => {
+    expect(formatDistance(168.5, 'metric')).toBe('154.1 m')
+  })
+
+  it('shows an em dash when the distance is unavailable', () => {
+    expect(formatDistance(0, 'imperial')).toBe('—')
+    expect(formatDistance(0, 'metric')).toBe('—')
   })
 })
 

@@ -39,12 +39,14 @@ import {
   connectionTitle,
   displayDeviceName,
   errorMessage,
+  formatDistance,
   formatMetric,
   formatTeeDistance,
   formatTempo,
   type ConnectionPhase,
   type MetricKey,
   type R10Shot,
+  type R10ShotMetrics,
   type Shot,
 } from '@/lib/format'
 
@@ -104,6 +106,8 @@ const initialShot: Shot = {
   launch: 0,
   ballSpeed: 0,
   spin: 0,
+  carry: 0,
+  total: 0,
 }
 
 const previewShot: Shot = {
@@ -116,6 +120,8 @@ const previewShot: Shot = {
   launch: 16.5,
   ballSpeed: 144.8,
   spin: 2420,
+  carry: 168.5,
+  total: 174.2,
 }
 
 function App() {
@@ -142,6 +148,7 @@ function App() {
   const readyTimerRef = useRef<number | null>(null)
   const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
+  const metricsByShotRef = useRef(new Map<number, Pick<R10ShotMetrics, 'carry_yards' | 'total_yards'>>())
 
   const connectionBusy = cleaningUp || ['scanning', 'connecting'].includes(connectionPhase)
 
@@ -210,6 +217,8 @@ function App() {
     let active = true
     let dispose: (() => void) | undefined
     void listen<R10Shot>('r10://shot', ({ payload }) => {
+      const metrics = metricsByShotRef.current.get(payload.shot_id)
+      metricsByShotRef.current.delete(payload.shot_id)
       const nextShot: Shot = {
         id: payload.shot_id,
         clubSpeed: (payload.club?.club_head_speed ?? 0) * 2.23694,
@@ -220,9 +229,17 @@ function App() {
         launch: payload.ball?.launch_angle ?? 0,
         ballSpeed: (payload.ball?.ball_speed ?? 0) * 2.23694,
         spin: payload.ball?.total_spin ?? 0,
+        carry: metrics?.carry_yards ?? 0,
+        total: metrics?.total_yards ?? 0,
       }
       setShot(nextShot)
       setHistory((current) => [nextShot, ...current])
+    }).then((unlisten) => {
+      if (active) dispose = unlisten
+      else unlisten()
+    }).catch(() => undefined)
+    void listen<R10ShotMetrics>('r10://shot-metrics', ({ payload }) => {
+      metricsByShotRef.current.set(payload.shot_id, { carry_yards: payload.carry_yards, total_yards: payload.total_yards })
     }).then((unlisten) => {
       if (active) dispose = unlisten
       else unlisten()
@@ -498,11 +515,13 @@ function App() {
                 <CardContent className="relative flex min-h-0 flex-1 flex-col justify-center pb-5 sm:px-7 sm:pb-7">
                   <div className="flex items-end gap-3"><strong className="font-serif text-[clamp(4.25rem,18vw,9rem)] font-normal leading-[0.75] tracking-[-0.08em]">{hasShot ? convertSpeed(shot.clubSpeed).toFixed(1) : '--'}</strong><span className="mb-1 font-mono text-sm uppercase text-primary">{speedUnit}</span></div>
                   <Separator className="my-5 sm:my-8" />
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
                     <Metric label="Path" value={hasShot ? `${shot.path.toFixed(1)}°` : '--'} tone="bg-chart-2" />
                     <Metric label="Face" value={hasShot ? `${shot.face.toFixed(1)}°` : '--'} tone="bg-chart-3" />
                     <Metric label="Attack" value={hasShot ? `${shot.attack.toFixed(1)}°` : '--'} tone="bg-chart-4" />
                     <Metric label="Tempo" value={hasShot && shot.tempo ? formatTempo(shot.tempo) : '--'} tone="bg-chart-5" />
+                    <Metric label="Carry" value={hasShot ? formatDistance(shot.carry, units) : '--'} tone="bg-primary" />
+                    <Metric label="Total" value={hasShot ? formatDistance(shot.total, units) : '--'} tone="bg-chart-1" />
                   </div>
                 </CardContent>
               </Card>
@@ -514,8 +533,8 @@ function App() {
                 <Separator />
                 <CardContent className="min-h-0 flex-1 overflow-auto p-0">
                   {history.length ? (
-                    <Table><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="pl-6">Shot</TableHead><TableHead>Club speed</TableHead><TableHead>Path</TableHead><TableHead>Tempo</TableHead></TableRow></TableHeader><TableBody>
-                      {history.map((item) => <TableRow key={item.id} data-state={item.id === shot.id ? 'selected' : undefined}><TableCell className="pl-6 font-medium text-foreground">#{item.id}</TableCell><TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell><TableCell className={item.path < 0 ? 'text-chart-3' : 'text-primary'}>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell><TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell></TableRow>)}
+                    <Table><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="pl-6">Shot</TableHead><TableHead>Club speed</TableHead><TableHead>Path</TableHead><TableHead>Tempo</TableHead><TableHead>Carry</TableHead></TableRow></TableHeader><TableBody>
+                      {history.map((item) => <TableRow key={item.id} data-state={item.id === shot.id ? 'selected' : undefined}><TableCell className="pl-6 font-medium text-foreground">#{item.id}</TableCell><TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell><TableCell className={item.path < 0 ? 'text-chart-3' : 'text-primary'}>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell><TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell><TableCell>{formatDistance(item.carry, units)}</TableCell></TableRow>)}
                     </TableBody></Table>
                   ) : <EmptyState icon={List} title="No shots yet" description="Shots recorded by your R10 will be listed here." compact />}
                 </CardContent>
