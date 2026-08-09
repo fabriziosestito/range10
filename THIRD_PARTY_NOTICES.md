@@ -1,7 +1,7 @@
 # Third-Party Notices
 
 range10 incorporates the following third-party works. Exact resolved versions
-are recorded in `package-lock.json` and `src-tauri/Cargo.lock`.
+are recorded in `package-lock.json` and `Cargo.lock`.
 
 ## Fonts
 
@@ -28,6 +28,11 @@ The fonts are licensed under the
 - tailwind-merge: Copyright (c) 2021 Dany Castillo.
 - tauri-plugin-tts: Copyright (c) 2025 Affex Team.
 - tenover: Copyright (c) 2026 Eric Thill.
+- libgolf (flight model): Copyright (c) gdifiore, licensed under
+  [GPL-3.0-only](third-party/licenses/GPL-3.0.txt). The Rust port lives in
+  `crate/libgolf-rs/` (LICENSE and attribution in `crate/libgolf-rs/src/lib.rs`);
+  the in-air physics is based on Prof. Alan M. Nathan's trajectory model
+  (University of Illinois).
 - class-variance-authority: Copyright 2022 Joe Bell.
 
 These packages and their transitive dependencies retain their respective
