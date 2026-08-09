@@ -54,19 +54,22 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
         with:
-          workspaces: src-tauri
+          workspaces: .
 
       - name: Install protobuf compiler
         run: brew install protobuf
 
       - name: Check formatting
-        run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Lint Rust
-        run: cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
+        run: cargo clippy --workspace --lib -- -D warnings
 
       - name: Check Rust
-        run: cargo check --manifest-path src-tauri/Cargo.toml
+        run: cargo check --workspace
 
       - name: Test Rust
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib
+        run: cargo test --workspace --lib
+
+      - name: Test Rust docs
+        run: cargo test -p libgolf-rs --doc

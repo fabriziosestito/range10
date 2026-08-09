@@ -1,25 +1,40 @@
+//! Rolling-friction model for the ball after the bounce phase.
+
 use crate::constants;
 use crate::data::GroundSurface;
 use crate::vector::Vector3d;
 
+/// State at the start of one roll step.
 pub struct RollState {
+    /// Position in feet.
     pub position: Vector3d,
+    /// Velocity in ft/s.
     pub velocity: Vector3d,
+    /// Spin vector in rad/s.
     pub spin_vector: Vector3d,
+    /// Unit surface normal (upward on flat ground).
     pub surface_normal: Vector3d,
+    /// Time step in seconds.
     pub dt: f32,
 }
 
+/// Result of one roll step.
 pub struct RollResult {
+    /// Position after the step, in feet.
     pub new_position: Vector3d,
+    /// Velocity after the step, in ft/s.
     pub new_velocity: Vector3d,
+    /// Spin vector after the step, in rad/s (decayed).
     pub new_spin_vector: Vector3d,
+    /// True when the ball has stopped.
     pub at_rest: bool,
 }
 
 const STOPPING_VELOCITY: f32 = 0.1;
 const SPIN_DECAY_RATE: f32 = 2.0;
 
+/// Advances the ball by one roll step; returns the new state and whether the
+/// ball has come to rest.
 pub fn roll_step(state: &RollState, surface: &GroundSurface) -> RollResult {
     let dt = state.dt;
 

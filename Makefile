@@ -30,6 +30,7 @@ check:
 test:
 	npm run test
 	cargo test --workspace --lib
+	cargo test -p libgolf-rs --doc
 
 format:
 	cargo fmt --all

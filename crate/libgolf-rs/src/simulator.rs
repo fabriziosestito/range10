@@ -1,3 +1,9 @@
+//! Flight phase machine: aerial → bounce → roll → complete.
+//!
+//! [`run_shot`] is the entry point used by the app; [`Simulator`] exposes
+//! the underlying step-by-step simulator for callers that need the full
+//! trajectory or custom time steps.
+
 use crate::aero::{self, AerodynamicState};
 use crate::bounce;
 use crate::constants;
@@ -7,15 +13,21 @@ use crate::data::{
 use crate::roll;
 use crate::vector::{self, Vector3d};
 
+/// Current phase of the flight.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
+    /// Ball in the air, under gravity, drag, and Magnus forces.
     Aerial,
+    /// Ball impacting the ground (may bounce repeatedly).
     Bounce,
+    /// Ball rolling along the ground until it stops.
     Roll,
+    /// Simulation finished.
     Complete,
 }
 
 impl Phase {
+    /// Machine-readable name of the phase.
     pub fn name(self) -> &'static str {
         match self {
             Phase::Aerial => "aerial",
@@ -26,9 +38,13 @@ impl Phase {
     }
 }
 
+/// Errors produced by the simulator.
 #[derive(Debug)]
 pub enum SimError {
+    /// The simulation time step must be positive.
     NonPositiveDt(f32),
+    /// The simulation exceeded [`constants::MAX_SIMULATION_TIME`] without
+    /// reaching a complete state.
     DidNotConverge(Phase),
 }
 
@@ -50,6 +66,11 @@ impl std::fmt::Display for SimError {
 
 impl std::error::Error for SimError {}
 
+/// A step-by-step golf ball flight simulator.
+///
+/// Created from launch conditions, atmosphere, ground, and ball properties;
+/// advance it with [`run`](Self::run) or collect the full trajectory with
+/// [`run_and_get_trajectory`](Self::run_and_get_trajectory).
 pub struct Simulator {
     current_phase: Phase,
     state: BallState,
@@ -65,6 +86,10 @@ pub struct Simulator {
 }
 
 impl Simulator {
+    /// Builds a simulator for the given shot and conditions.
+    ///
+    /// `gravity` is in ft/s² (use [`constants::GRAVITY_FT_PER_S2`] for
+    /// standard gravity).
     pub fn new(
         launch: LaunchData,
         atmos: AtmosphericData,
@@ -104,6 +129,8 @@ impl Simulator {
         self.aerial_initialize();
     }
 
+    /// Simulates the entire flight with the given time step, discarding the
+    /// trajectory.
     pub fn run(&mut self, dt: f32) -> Result<(), SimError> {
         let max_steps = convergence_step_cap(dt)?;
 
@@ -118,6 +145,8 @@ impl Simulator {
         Ok(())
     }
 
+    /// Simulates the entire flight and returns one [`BallState`] per time
+    /// step, including the final resting state.
     pub fn run_and_get_trajectory(&mut self, dt: f32) -> Result<Vec<BallState>, SimError> {
         let max_steps = convergence_step_cap(dt)?;
 
@@ -136,14 +165,19 @@ impl Simulator {
         Ok(trajectory)
     }
 
+    /// Current ball state.
     pub fn state(&self) -> &BallState {
         &self.state
     }
 
+    /// Current flight phase.
     pub fn current_phase(&self) -> Phase {
         self.current_phase
     }
 
+    /// Final position relative to the launch origin, in yards.
+    ///
+    /// Only meaningful after the simulation has reached the complete phase.
     pub fn landing_result(&self) -> LandingResult {
         let relative = self.state.position - self.start_position;
         LandingResult {
@@ -335,28 +369,51 @@ fn convergence_step_cap(dt: f32) -> Result<i64, SimError> {
     Ok((constants::MAX_SIMULATION_TIME / dt) as i64)
 }
 
+/// Final resting position relative to the launch origin, in yards.
 #[derive(Debug, Clone, Copy)]
 pub struct LandingResult {
+    /// Lateral displacement (positive = right), in yards.
     pub x_yards: f32,
+    /// Downrange distance, in yards.
     pub y_yards: f32,
+    /// Height above the launch origin, in yards.
     pub z_yards: f32,
+    /// Total flight time in seconds.
     pub time_of_flight: f32,
+    /// Bearing of the landing point from the origin, in degrees.
     pub bearing_deg: f32,
+    /// Straight-line horizontal distance from the origin, in yards.
     pub distance: f32,
 }
 
+/// Summary of a simulated shot.
 #[derive(Debug, Clone, Default)]
 pub struct ShotResult {
+    /// Trajectory as interleaved (x, y, z) positions in yards, one state per
+    /// time step.
     pub trajectory: Vec<f32>,
+    /// Index into `trajectory` of the first state at/below ground level after
+    /// the apex (the carry landing point).
     pub carry_index: usize,
+    /// Carry distance (downrange position at first ground contact), in yards.
     pub carry_yards: f32,
+    /// Total distance including bounce and roll, in yards.
     pub total_yards: f32,
+    /// Maximum height reached, in yards.
     pub apex_yards: f32,
+    /// Lateral displacement at the final resting point (positive = right),
+    /// in yards.
     pub offline_yards: f32,
+    /// Total flight time in seconds.
     pub time_of_flight: f32,
+    /// Bearing of the final resting point from the launch origin, in degrees.
     pub bearing_deg: f32,
 }
 
+/// Simulates a full shot with standard ball properties, gravity, and time
+/// step, and returns the carry/total/apex/offline summary.
+///
+/// This is the primary entry point of the crate.
 pub fn run_shot(
     launch: LaunchData,
     atmos: AtmosphericData,

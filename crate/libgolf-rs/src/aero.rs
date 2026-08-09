@@ -1,13 +1,26 @@
+//! Aerodynamic model for the aerial phase: drag, lift (Magnus effect), and
+//! spin decay.
+//!
+//! Drag and lift coefficients are interpolated from Reynolds number and
+//! spin-factor tables ported from libgolf (Prof. Alan M. Nathan's model).
+
 use crate::constants;
 use crate::data::ShotPhysicsContext;
 use crate::vector::Vector3d;
 
+/// Inputs to the aerodynamic computation for one simulation step.
 pub struct AerodynamicState {
+    /// Ball velocity in ft/s.
     pub velocity: Vector3d,
+    /// Wind velocity in ft/s (zero below the wind height).
     pub wind_velocity: Vector3d,
+    /// Spin vector in rad/s.
     pub spin_vector: Vector3d,
+    /// Ball radius in feet.
     pub ball_radius: f32,
+    /// Drag coefficient scale from [`ShotPhysicsContext`].
     pub c0: f32,
+    /// Reynolds number at 100 mph from [`ShotPhysicsContext`].
     pub re100: f32,
 }
 
@@ -52,11 +65,15 @@ const CL_MAX_SR_LERP_HIGH: f32 = 0.50;
 
 const HIGH_RE_SPIN_GAIN: f32 = 16.0;
 
+/// Exponential time constant (seconds) for spin decay in the air.
 pub fn spin_decay_tau(state: &AerodynamicState) -> f32 {
     let v = state.velocity.magnitude();
     1.0 / (TAU_COEFF * v / state.ball_radius)
 }
 
+/// Combined drag + Magnus acceleration on the ball, in ft/s².
+///
+/// Returns zero when the ball is nearly stationary relative to the wind.
 pub fn compute_acceleration(state: &AerodynamicState) -> Vector3d {
     let v_rel = state.velocity - state.wind_velocity;
     let vw = (v_rel.0 as f64 * v_rel.0 as f64
@@ -107,6 +124,9 @@ pub fn compute_acceleration(state: &AerodynamicState) -> Vector3d {
     drag + magnus
 }
 
+/// Drag coefficient from Reynolds number (×10⁵) and spin factor
+/// (surface speed / airspeed). `cd` grows with spin and drops as the ball
+/// crosses the drag-crisis Reynolds range.
 pub(crate) fn compute_cd(re_x_e5: f64, spin_factor: f64) -> f64 {
     let cd_low = CD_LOW as f64;
     let cd_high = CD_HIGH as f64;
@@ -124,6 +144,10 @@ pub(crate) fn compute_cd(re_x_e5: f64, spin_factor: f64) -> f64 {
     }
 }
 
+/// Lift coefficient from Reynolds number (×10⁵) and spin factor.
+///
+/// Interpolates polynomial fits at fixed Reynolds bins (50k–70k), ramps in
+/// from the no-lift regime, and saturates at a spin-dependent ceiling.
 pub(crate) fn compute_cl(re_x_e5: f64, spin_factor: f64) -> f64 {
     let s = spin_factor.max(0.0);
     if s <= 0.0 {
@@ -200,6 +224,8 @@ fn cl_re70k(s: f64) -> f64 {
     CL_RE70K_A0 as f64 + CL_RE70K_A1 as f64 * s + CL_RE70K_A2 as f64 * s * s
 }
 
+/// Builds the aerodynamic state for a ball state, applying wind only above
+/// the configured wind height.
 pub fn build_state(
     state: &crate::data::BallState,
     context: &ShotPhysicsContext,

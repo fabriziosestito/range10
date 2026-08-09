@@ -1,16 +1,32 @@
+//! Ball–ground bounce model.
+//!
+//! Resolves impact velocity into normal and tangential components: the
+//! normal component reflects with an effective coefficient of restitution
+//! that degrades with spin and impact speed; the tangential component either
+//! retains energy with spin-back ("bite") on steep, fast impacts or is
+//! damped by friction otherwise.
+
 use crate::constants;
 use crate::data::GroundSurface;
 use crate::vector::Vector3d;
 
+/// State at the moment of ground contact.
 pub struct BounceState {
+    /// Impact velocity in ft/s.
     pub velocity: Vector3d,
+    /// Unit surface normal (upward on flat ground).
     pub surface_normal: Vector3d,
+    /// Spin vector in rad/s.
     pub spin_vector: Vector3d,
+    /// Ball radius in feet.
     pub ball_radius: f32,
 }
 
+/// Post-bounce state.
 pub struct BounceResult {
+    /// Velocity after the bounce, in ft/s.
     pub new_velocity: Vector3d,
+    /// Spin vector after the bounce, in rad/s.
     pub new_spin_vector: Vector3d,
 }
 
@@ -26,6 +42,7 @@ const BOUNCE_RETENTION_BASE: f32 = 0.55;
 const BOUNCE_RETENTION_RPM_NORM: f32 = 8000.0;
 const BOUNCE_RETENTION_FLOOR: f32 = 0.40;
 
+/// Resolves one bounce against the surface.
 pub fn resolve_bounce(state: &BounceState, surface: &GroundSurface) -> BounceResult {
     let v_dot_n = state.velocity.dot(state.surface_normal);
 
