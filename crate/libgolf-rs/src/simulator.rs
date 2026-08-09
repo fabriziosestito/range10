@@ -1,11 +1,11 @@
-use crate::golf::aero::{self, AerodynamicState};
-use crate::golf::bounce;
-use crate::golf::constants;
-use crate::golf::data::{
+use crate::aero::{self, AerodynamicState};
+use crate::bounce;
+use crate::constants;
+use crate::data::{
     AtmosphericData, BallProperties, BallState, GroundSurface, LaunchData, ShotPhysicsContext,
 };
-use crate::golf::roll;
-use crate::golf::vector::{self, Vector3d};
+use crate::roll;
+use crate::vector::{self, Vector3d};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Phase {
@@ -104,7 +104,6 @@ impl Simulator {
         self.aerial_initialize();
     }
 
-    #[expect(dead_code)]
     pub fn run(&mut self, dt: f32) -> Result<(), SimError> {
         let max_steps = convergence_step_cap(dt)?;
 
@@ -137,12 +136,10 @@ impl Simulator {
         Ok(trajectory)
     }
 
-    #[expect(dead_code)]
     pub fn state(&self) -> &BallState {
         &self.state
     }
 
-    #[expect(dead_code)]
     pub fn current_phase(&self) -> Phase {
         self.current_phase
     }
@@ -342,26 +339,21 @@ fn convergence_step_cap(dt: f32) -> Result<i64, SimError> {
 pub struct LandingResult {
     pub x_yards: f32,
     pub y_yards: f32,
-    #[expect(dead_code)]
     pub z_yards: f32,
     pub time_of_flight: f32,
     pub bearing_deg: f32,
-    #[expect(dead_code)]
     pub distance: f32,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct ShotResult {
-    #[expect(dead_code)]
     pub trajectory: Vec<f32>,
-    #[expect(dead_code)]
     pub carry_index: usize,
     pub carry_yards: f32,
     pub total_yards: f32,
     pub apex_yards: f32,
     pub offline_yards: f32,
     pub time_of_flight: f32,
-    #[expect(dead_code)]
     pub bearing_deg: f32,
 }
 

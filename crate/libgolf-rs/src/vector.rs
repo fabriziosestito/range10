@@ -1,6 +1,6 @@
 use std::ops::{Add, AddAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
-use crate::golf::constants;
+use crate::constants;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Vector3d(pub f32, pub f32, pub f32);

@@ -108,15 +108,15 @@ no C++ toolchain pain, voice/TTS-ready (speech lives in Rust).
   JSON import vs editable fields; file-picker import vs bundled assets.
 
 ## Implementation steps
-1. ✅ Port physics → `src-tauri/src/golf/…` (imperial, same constants): aero,
-   bounce, roll, phase, simulator, atmos, math + `ShotResult`
+1. ✅ Port physics → `crate/libgolf-rs/src/…` (imperial, same constants):
+   aero, bounce, roll, phase, simulator, atmos, math + `ShotResult`
    (carry/total/apex/offline/time + trajectory) with carry-index logic from
    `wasm/bindings.cpp::runShot`; take a `ModelConstants` (profile body)
    everywhere.
-   - `golf/constants.rs` physics constants; `golf/vector.rs` Vector3d + math;
-     `golf/data.rs` LaunchData/AtmosphericData/BallProperties/GroundSurface/
-     ShotPhysicsContext; `golf/aero.rs` drag/lift/spin-decay; `golf/bounce.rs`
-     + `golf/roll.rs` ground models; `golf/simulator.rs` phase machine,
+   - `crate/libgolf-rs/src/constants.rs` physics constants; `vector.rs`
+     Vector3d + math; `data.rs` LaunchData/AtmosphericData/BallProperties/
+     GroundSurface/ShotPhysicsContext; `aero.rs` drag/lift/spin-decay;
+     `bounce.rs` + `roll.rs` ground models; `simulator.rs` phase machine,
      `run_shot` → `ShotResult`.
    - No model traits: concrete default models only. `ModelConstants`/profiles
      deferred until calibration needs constant overrides.

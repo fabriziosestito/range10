@@ -1,6 +1,6 @@
-use crate::golf::constants;
-use crate::golf::data::ShotPhysicsContext;
-use crate::golf::vector::Vector3d;
+use crate::constants;
+use crate::data::ShotPhysicsContext;
+use crate::vector::Vector3d;
 
 pub struct AerodynamicState {
     pub velocity: Vector3d,
@@ -201,7 +201,7 @@ fn cl_re70k(s: f64) -> f64 {
 }
 
 pub fn build_state(
-    state: &crate::golf::data::BallState,
+    state: &crate::data::BallState,
     context: &ShotPhysicsContext,
     ball_radius: f32,
 ) -> AerodynamicState {
@@ -223,7 +223,7 @@ pub fn build_state(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::golf::constants;
+    use crate::constants;
 
     const BALL_RADIUS: f32 =
         constants::STD_BALL_CIRCUMFERENCE_IN / (2.0 * constants::PI) / constants::INCHES_PER_FOOT;

@@ -11,10 +11,9 @@ use tenover::proto::ShotConfig;
 use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
 
-use golf::{AtmosphericData, GroundSurface, LaunchData};
+use libgolf_rs::{AtmosphericData, GroundSurface, LaunchData};
 use voice::{speak, spoken_shot, VoiceConfig, VoiceState};
 
-mod golf;
 mod voice;
 
 const MULTILINK_SERVICE: Uuid = uuid!("6a4e2800-667b-11e3-949a-0800200c9a66");
@@ -53,7 +52,7 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
         sidespin_rpm: ball.sidespin,
         ..Default::default()
     };
-    match golf::run_shot(launch, DEFAULT_ATMOS, GroundSurface::default()) {
+    match libgolf_rs::run_shot(launch, DEFAULT_ATMOS, GroundSurface::default()) {
         Ok(result) => Some(ShotMetrics {
             shot_id: shot.shot_id,
             carry_yards: result.carry_yards,

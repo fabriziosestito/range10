@@ -18,24 +18,24 @@ node_modules/.package-lock.json: package-lock.json
 # Fast static checks only.
 lint:
 	npm run lint
-	cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
+	cargo clippy --workspace --lib -- -D warnings
 
 check:
 	npm run lint
 	npm run build
-	cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-	cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings
-	cargo check --manifest-path src-tauri/Cargo.toml
+	cargo fmt --all -- --check
+	cargo clippy --workspace --lib -- -D warnings
+	cargo check --workspace
 
 test:
 	npm run test
-	cargo test --manifest-path src-tauri/Cargo.toml --lib
+	cargo test --workspace --lib
 
 format:
-	cargo fmt --manifest-path src-tauri/Cargo.toml --all
+	cargo fmt --all
 
 clean:
-	rm -rf dist src-tauri/target
+	rm -rf dist target src-tauri/target
 
 ## macOS.
 

@@ -7,6 +7,9 @@
   preference persistence, and the current screens.
 - `src/components/ui/` contains local shadcn/Radix UI source components.
 - `src/index.css` contains Tailwind setup and the dark Sage Green theme.
+- `crate/libgolf-rs/` contains the pure-Rust port of the libgolf ball flight
+  model (carry/total distance), a standalone workspace crate used by the
+  Tauri backend.
 - `src-tauri/src/lib.rs` contains the BLE transport, `tenover` protocol session,
   Tauri commands and events, and live TTS output.
 - `src-tauri/capabilities/default.json` defines permissions for the main window.

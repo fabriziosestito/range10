@@ -1,5 +1,5 @@
-use crate::golf::constants;
-use crate::golf::vector::{self, Vector3d};
+use crate::constants;
+use crate::vector::{self, Vector3d};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LaunchData {
@@ -250,7 +250,6 @@ impl ShotPhysicsContext {
         }
     }
 
-    #[expect(dead_code)]
     pub fn rho_metric(&self) -> f32 {
         self.rho_metric
     }
@@ -267,22 +266,18 @@ impl ShotPhysicsContext {
         self.vw
     }
 
-    #[expect(dead_code)]
     pub fn temp_kelvin(&self) -> f32 {
         vector::celsius_to_kelvin(self.temp_c)
     }
 
-    #[expect(dead_code)]
     pub fn rel_humidity(&self) -> f32 {
         self.atmos.rel_humidity
     }
 
-    #[expect(dead_code)]
     pub fn air_viscosity(&self) -> f32 {
         self.air_viscosity
     }
 
-    #[expect(dead_code)]
     pub fn barometric_pressure(&self) -> f32 {
         self.barometric_pressure
     }
@@ -291,17 +286,14 @@ impl ShotPhysicsContext {
         self.re100
     }
 
-    #[expect(dead_code)]
     pub fn omega(&self) -> f32 {
         self.omega
     }
 
-    #[expect(dead_code)]
     pub fn r_omega(&self) -> f32 {
         self.r_omega
     }
 
-    #[expect(dead_code)]
     pub fn v0(&self) -> Vector3d {
         self.v0
     }

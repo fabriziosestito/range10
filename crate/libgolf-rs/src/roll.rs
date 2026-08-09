@@ -1,6 +1,6 @@
-use crate::golf::constants;
-use crate::golf::data::GroundSurface;
-use crate::golf::vector::Vector3d;
+use crate::constants;
+use crate::data::GroundSurface;
+use crate::vector::Vector3d;
 
 pub struct RollState {
     pub position: Vector3d,
