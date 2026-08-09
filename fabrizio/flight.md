@@ -108,12 +108,25 @@ no C++ toolchain pain, voice/TTS-ready (speech lives in Rust).
   JSON import vs editable fields; file-picker import vs bundled assets.
 
 ## Implementation steps
-1. Port physics → `src-tauri/src/golf/…` (imperial, same constants): aero,
+1. ✅ Port physics → `src-tauri/src/golf/…` (imperial, same constants): aero,
    bounce, roll, phase, simulator, atmos, math + `ShotResult`
    (carry/total/apex/offline/time + trajectory) with carry-index logic from
    `wasm/bindings.cpp::runShot`; take a `ModelConstants` (profile body)
    everywhere.
-2. Wire `Event::Shot` → emit `carryYards`/`totalYards` in the event payload.
+   - `golf/constants.rs` physics constants; `golf/vector.rs` Vector3d + math;
+     `golf/data.rs` LaunchData/AtmosphericData/BallProperties/GroundSurface/
+     ShotPhysicsContext; `golf/aero.rs` drag/lift/spin-decay; `golf/bounce.rs`
+     + `golf/roll.rs` ground models; `golf/simulator.rs` phase machine,
+     `run_shot` → `ShotResult`.
+   - No model traits: concrete default models only. `ModelConstants`/profiles
+     deferred until calibration needs constant overrides.
+   - Verified numerically against the real C++ libgolf (g++ build of the same
+     9 scenarios — driver/iron/wedge/slice/hook/wind/headwind/elevation) to
+     within 0.05 yd: reference tests in `simulator.rs`.
+2. ✅ Wire `Event::Shot` → emit `carryYards`/`totalYards` via new
+   `r10://shot-metrics` event (`ShotMetrics` { shot_id, carry_yards,
+   total_yards, apex_yards, offline_yards, time_of_flight }). Atmos defaults
+   for the app: 70°F / 0 ft / 50% / 29.92 inHg / no wind (`DEFAULT_ATMOS`).
 3. Frontend: `Shot` gains launch_direction/backspin/sidespin (already in
    payload); Log carry column; Stats carry metric; distance formatting via
    existing `yardsToMeters`.
@@ -122,3 +135,16 @@ no C++ toolchain pain, voice/TTS-ready (speech lives in Rust).
 5. Settings: env rows + profile selector + import/export.
 6. Verify `make check` + `make test`; hardware session vs Garmin app to
    validate signs.
+
+## Port notes
+- Reference harness (temp): `refcheck.cpp` built at
+  `/var/folders/x4/yyd42v811kd958f6lb9f29gm0000gn/T/opencode/libgolf` against
+  the fetched source; not committed.
+- libgolf `sidespin_rpm` header doc says "+ = hook" but the math produces
+  opposite (positive sidespin curves left, see w-vector/Magnus cross). The
+  port reproduces the math; hardware sign check (step 6) decides the final
+  mapping.
+- `run_shot` follows `wasm/bindings.cpp` carry detection (first state at/below
+  ground.height + 0.05 ft after apex; total/offline from the landing result).
+  `tools/calibration/sim_runner.cpp` uses a different hysteresis detection —
+  pick one when building the CSV runner (step 4).

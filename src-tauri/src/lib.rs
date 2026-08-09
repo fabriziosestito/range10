@@ -11,8 +11,10 @@ use tenover::proto::ShotConfig;
 use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
 
+use golf::{AtmosphericData, GroundSurface, LaunchData};
 use voice::{speak, spoken_shot, VoiceConfig, VoiceState};
 
+mod golf;
 mod voice;
 
 const MULTILINK_SERVICE: Uuid = uuid!("6a4e2800-667b-11e3-949a-0800200c9a66");
@@ -20,6 +22,55 @@ const REGISTER_CHARACTERISTIC: Uuid = uuid!("6a4e2810-667b-11e3-949a-0800200c9a6
 const DATA_CHARACTERISTIC: Uuid = uuid!("6a4e2820-667b-11e3-949a-0800200c9a66");
 
 const DEFAULT_TEE_DISTANCE_YARDS: f32 = 2.3;
+
+const DEFAULT_ATMOS: AtmosphericData = AtmosphericData {
+    temp_f: 70.0,
+    elevation_ft: 0.0,
+    wind_mph: 0.0,
+    wind_direction_deg: 0.0,
+    wind_height_ft: 0.0,
+    rel_humidity: 50.0,
+    pressure_inhg: 29.92,
+};
+
+#[derive(serde::Serialize)]
+struct ShotMetrics {
+    shot_id: u32,
+    carry_yards: f32,
+    total_yards: f32,
+    apex_yards: f32,
+    offline_yards: f32,
+    time_of_flight: f32,
+}
+
+fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> {
+    let ball = shot.ball?;
+    let launch = LaunchData {
+        ball_speed_mph: ball.ball_speed * 2.23694,
+        launch_angle_deg: ball.launch_angle,
+        direction_deg: ball.launch_direction,
+        backspin_rpm: ball.backspin,
+        sidespin_rpm: ball.sidespin,
+        ..Default::default()
+    };
+    match golf::run_shot(launch, DEFAULT_ATMOS, GroundSurface::default()) {
+        Ok(result) => Some(ShotMetrics {
+            shot_id: shot.shot_id,
+            carry_yards: result.carry_yards,
+            total_yards: result.total_yards,
+            apex_yards: result.apex_yards,
+            offline_yards: result.offline_yards,
+            time_of_flight: result.time_of_flight,
+        }),
+        Err(error) => {
+            log::warn!(
+                "flight simulation failed for shot {}: {error}",
+                shot.shot_id
+            );
+            None
+        }
+    }
+}
 
 struct SessionState {
     stop: Mutex<Option<Sender<()>>>,
@@ -194,6 +245,9 @@ async fn start_r10(
                     }
                     Ok(Some(Event::Shot(shot))) => {
                         let _ = app.emit("r10://shot", &shot);
+                        if let Some(metrics) = compute_shot_metrics(&shot) {
+                            let _ = app.emit("r10://shot-metrics", &metrics);
+                        }
                         if let Ok(config) = app.state::<VoiceState>().config.lock() {
                             if config.voice_enabled {
                                 let _ = voice_tx.send(spoken_shot(&shot, &config));
