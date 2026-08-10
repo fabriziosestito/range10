@@ -4202,7 +4202,7 @@ dependencies = [
 [[package]]
 name = "tenover"
 version = "0.0.3"
-source = "git+https://github.com/fabriziosestito/10over?rev=3ec5874b8d1d9efd0e2532e948e8bdf6098d9f25#3ec5874b8d1d9efd0e2532e948e8bdf6098d9f25"
+source = "git+https://github.com/fabriziosestito/10over?rev=2202b20879763cead3443eff5f7ae8df398c99c7#2202b20879763cead3443eff5f7ae8df398c99c7"
 dependencies = [
  "btleplug 0.11.8",
  "libc",

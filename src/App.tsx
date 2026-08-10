@@ -93,8 +93,6 @@ const settingsStore = new LazyStore('settings.json')
 
 const TEE_DISTANCE_DEFAULT = 2.3
 
-const STALL_TIMEOUT_MS = 30000
-
 const RECONNECT_DELAY_MS = 2000
 const RECONNECT_ATTEMPTS = 2
 const BLE_CONNECT_TIMEOUT_MS = 6000
@@ -158,7 +156,6 @@ function App() {
   const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
   const metricsByShotRef = useRef(new Map<number, Pick<R10ShotMetrics, 'carry_yards' | 'total_yards'>>())
-  const lastHeartbeatRef = useRef(0)
   const selectedAddressRef = useRef('')
   const reconnectAttemptsRef = useRef(0)
   const reconnectingRef = useRef(false)
@@ -330,12 +327,6 @@ function App() {
       if (active) dispose = unlisten
       else unlisten()
     }).catch(() => undefined)
-    void listen<unknown>('r10://heartbeat', () => {
-      lastHeartbeatRef.current = Date.now()
-    }).then((unlisten) => {
-      if (active) dispose = unlisten
-      else unlisten()
-    }).catch(() => undefined)
     return () => {
       active = false
       dispose?.()
@@ -360,7 +351,6 @@ function App() {
         setConnectionStatus('R10 connected, waiting for your swing.')
         setConnectionError('')
         setConnectionPhase('ready')
-        lastHeartbeatRef.current = Date.now()
         clearReadyTimer()
         readyTimerRef.current = window.setTimeout(() => {
           setConnectionOpen(false)
@@ -429,39 +419,6 @@ function App() {
     clearReadyTimer()
     clearHandshakeTimer()
   }, [])
-
-  useEffect(() => {
-    // While the app is suspended (screen lock, background) timers freeze but
-    // the wall clock keeps running: without this grace reset the stall
-    // watchdog would kill a healthy session right after resume.
-    const onVisible = () => {
-      if (!document.hidden && lastHeartbeatRef.current !== 0) {
-        lastHeartbeatRef.current = Date.now()
-      }
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [])
-
-  useEffect(() => {
-    if (!connected || connectionPhase !== 'ready') return
-    const id = window.setInterval(() => {
-      if (document.hidden) return
-      if (lastHeartbeatRef.current !== 0 && Date.now() - lastHeartbeatRef.current > STALL_TIMEOUT_MS) {
-        lastHeartbeatRef.current = 0
-        ++attemptRef.current
-        clearReadyTimer()
-        clearHandshakeTimer()
-        setConnected(false)
-        setConnectionError('The R10 session stalled. Retry the connection to keep hitting.')
-        setConnectionPhase('error')
-        setConnectionOpen(true)
-        void disconnectBle().catch(() => undefined)
-        void invoke('stop_r10').catch(() => undefined)
-      }
-    }, 5000)
-    return () => window.clearInterval(id)
-  }, [connected, connectionPhase])
 
   const speedUnit = units === 'imperial' ? 'mph' : 'km/h'
   const convertSpeed = (value: number) => units === 'imperial' ? value : value * 1.60934
