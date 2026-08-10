@@ -414,8 +414,22 @@ function App() {
   }, [])
 
   useEffect(() => {
+    // While the app is suspended (screen lock, background) timers freeze but
+    // the wall clock keeps running: without this grace reset the stall
+    // watchdog would kill a healthy session right after resume.
+    const onVisible = () => {
+      if (!document.hidden && lastHeartbeatRef.current !== 0) {
+        lastHeartbeatRef.current = Date.now()
+      }
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
+  }, [])
+
+  useEffect(() => {
     if (!connected || connectionPhase !== 'ready') return
     const id = window.setInterval(() => {
+      if (document.hidden) return
       if (lastHeartbeatRef.current !== 0 && Date.now() - lastHeartbeatRef.current > STALL_TIMEOUT_MS) {
         lastHeartbeatRef.current = 0
         ++attemptRef.current
