@@ -24,6 +24,10 @@ const DEFAULT_TEE_DISTANCE_YARDS: f32 = 2.3;
 
 const WRITE_TIMEOUT: Duration = Duration::from_secs(3);
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+/// Consecutive write timeouts (with no incoming events in between) after
+/// which the transport is considered dead. Single timeouts are expected
+/// while iOS suspends the app between BLE background wake windows.
+const MAX_CONSECUTIVE_WRITE_TIMEOUTS: u32 = 3;
 
 const DEFAULT_ATMOS: AtmosphericData = AtmosphericData {
     temp_f: 70.0,
@@ -259,6 +263,7 @@ async fn start_r10(
             }
             let mut last_heartbeat = std::time::Instant::now();
             let mut last_tee_yards_sent: Option<f32> = None;
+            let mut write_timeouts: u32 = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
                     log::info!("[{session_id}] R10 session ended: stopped");
@@ -283,7 +288,11 @@ async fn start_r10(
                         last_tee_yards_sent = Some(yards);
                     }
                 }
-                match client.poll() {
+                let polled = client.poll();
+                if matches!(polled, Ok(Some(_))) {
+                    write_timeouts = 0;
+                }
+                match polled {
                     Ok(Some(Event::Registered { .. })) => {
                         log::info!("[{session_id}] R10 registered");
                         let _ = app.emit("r10://stage", "registered");
@@ -346,6 +355,18 @@ async fn start_r10(
                     }
                     Ok(_) => {}
                     Err(error) => match error {
+                        tenover::Error::Transport(inner)
+                            if inner.kind() == io::ErrorKind::TimedOut
+                                && write_timeouts + 1 < MAX_CONSECUTIVE_WRITE_TIMEOUTS =>
+                        {
+                            // Expected while the app is suspended between BLE
+                            // background wake windows: the write lands late or
+                            // the device retransmits, so keep the session.
+                            write_timeouts += 1;
+                            log::warn!(
+                                "[{session_id}] BLE write timed out ({write_timeouts}), continuing"
+                            );
+                        }
                         tenover::Error::Transport(inner) => {
                             log::error!("[{session_id}] R10 session transport failure: {inner}");
                             let _ = app.emit("r10://session-end", inner.to_string());

@@ -162,6 +162,7 @@ function App() {
   const selectedAddressRef = useRef('')
   const reconnectAttemptsRef = useRef(0)
   const reconnectingRef = useRef(false)
+  const pendingReconnectRef = useRef(false)
 
   const connectionBusy = cleaningUp || ['scanning', 'connecting'].includes(connectionPhase)
 
@@ -354,6 +355,7 @@ function App() {
         connectLockRef.current = false
         reconnectAttemptsRef.current = 0
         reconnectingRef.current = false
+        pendingReconnectRef.current = false
         setConnected(true)
         setConnectionStatus('R10 connected, waiting for your swing.')
         setConnectionError('')
@@ -393,17 +395,32 @@ function App() {
     }).catch(() => undefined)
     void listen<string>('r10://session-end', () => {
       if (!selectedAddressRef.current || reconnectingRef.current) return
+      if (document.hidden) {
+        // The webview is frozen while the app is suspended: defer the
+        // reconnect until the app is visible instead of burning attempts.
+        pendingReconnectRef.current = true
+        return
+      }
       reconnectLoop(selectedAddressRef.current)
     }).then((unlisten) => {
       if (active) disposeSessionEnd = unlisten
       else unlisten()
     }).catch(() => undefined)
+    const onVisibleReconnect = () => {
+      if (document.hidden || !pendingReconnectRef.current) return
+      pendingReconnectRef.current = false
+      if (selectedAddressRef.current && !reconnectingRef.current) {
+        reconnectLoop(selectedAddressRef.current)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibleReconnect)
     return () => {
       active = false
       disposeStage?.()
       disposeError?.()
       disposeDeviceError?.()
       disposeSessionEnd?.()
+      document.removeEventListener('visibilitychange', onVisibleReconnect)
     }
   }, [reconnectLoop])
 
@@ -616,6 +633,7 @@ function App() {
     ++attemptRef.current
     reconnectAttemptsRef.current = 0
     reconnectingRef.current = false
+    pendingReconnectRef.current = false
     selectedAddressRef.current = ''
     clearScanTimer()
     clearReadyTimer()
