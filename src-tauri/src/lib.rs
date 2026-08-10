@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_blec::models::WriteType;
-use tauri_plugin_blec::{get_handler, Handler, OnDisconnectHandler};
+use tauri_plugin_blec::{get_handler, OnDisconnectHandler};
 use tenover::proto::ShotConfig;
 use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
@@ -22,12 +22,8 @@ const DATA_CHARACTERISTIC: Uuid = uuid!("6a4e2820-667b-11e3-949a-0800200c9a66");
 
 const DEFAULT_TEE_DISTANCE_YARDS: f32 = 2.3;
 
-const WRITE_TIMEOUT: Duration = Duration::from_secs(3);
+const WRITE_QUEUE_CAPACITY: usize = 64;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
-/// Consecutive write timeouts (with no incoming events in between) after
-/// which the transport is considered dead. Single timeouts are expected
-/// while iOS suspends the app between BLE background wake windows.
-const MAX_CONSECUTIVE_WRITE_TIMEOUTS: u32 = 3;
 
 const DEFAULT_ATMOS: AtmosphericData = AtmosphericData {
     temp_f: 70.0,
@@ -121,9 +117,15 @@ fn set_tee_distance(state: State<'_, SessionState>, yards: f32) -> Result<(), St
     Ok(())
 }
 
+struct BleWrite {
+    characteristic: Uuid,
+    write_type: WriteType,
+    payload: Vec<u8>,
+}
+
 struct BlecTransport {
     notifications: Receiver<Vec<u8>>,
-    handler: &'static Handler,
+    writes: tokio::sync::mpsc::Sender<BleWrite>,
 }
 
 impl Transport for BlecTransport {
@@ -149,39 +151,30 @@ impl Transport for BlecTransport {
 }
 
 impl BlecTransport {
+    /// Enqueue a write on the ordered writer task without blocking.
+    ///
+    /// There is deliberately no timeout: while iOS suspends the app between
+    /// BLE background wake windows a write can land seconds late and still
+    /// be perfectly valid. A full queue means the link is genuinely wedged.
     fn send(&self, data: &[u8], register: bool) -> Result<(), io::Error> {
-        let characteristic = if register {
-            REGISTER_CHARACTERISTIC
-        } else {
-            DATA_CHARACTERISTIC
+        let write = BleWrite {
+            characteristic: if register {
+                REGISTER_CHARACTERISTIC
+            } else {
+                DATA_CHARACTERISTIC
+            },
+            write_type: if register {
+                WriteType::WithResponse
+            } else {
+                WriteType::WithoutResponse
+            },
+            payload: data.to_vec(),
         };
-        let write_type = if register {
-            WriteType::WithResponse
-        } else {
-            WriteType::WithoutResponse
-        };
-        let payload = data.to_vec();
-        let handler = self.handler;
-        let (done_tx, done_rx) = mpsc::channel();
-        tauri::async_runtime::spawn(async move {
-            let _ = done_tx.send(
-                handler
-                    .send_data(
-                        characteristic,
-                        Some(MULTILINK_SERVICE),
-                        &payload,
-                        write_type,
-                    )
-                    .await,
-            );
-        });
-        match done_rx.recv_timeout(WRITE_TIMEOUT) {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(error)) => Err(io::Error::other(error.to_string())),
-            Err(_) => Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "BLE write timed out",
-            )),
+        use tokio::sync::mpsc::error::TrySendError;
+        match self.writes.try_send(write) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => Err(io::Error::other("BLE write queue full")),
+            Err(TrySendError::Closed(_)) => Err(io::Error::from(io::ErrorKind::BrokenPipe)),
         }
     }
 }
@@ -247,12 +240,32 @@ async fn start_r10(
         })
         .map_err(|error| error.to_string())?;
 
+    // Single ordered writer: preserves chunk order and lets writes queued
+    // while iOS suspends the app flush in the next BLE wake window.
+    let (write_tx, mut write_rx) = tokio::sync::mpsc::channel::<BleWrite>(WRITE_QUEUE_CAPACITY);
+    tauri::async_runtime::spawn(async move {
+        while let Some(write) = write_rx.recv().await {
+            if let Err(error) = handler
+                .send_data(
+                    write.characteristic,
+                    Some(MULTILINK_SERVICE),
+                    &write.payload,
+                    write.write_type,
+                )
+                .await
+            {
+                log::warn!("[{session_id}] BLE write failed: {error}");
+            }
+        }
+        log::info!("[{session_id}] BLE writer stopped");
+    });
+
     thread::Builder::new()
         .name("r10-session".into())
         .spawn(move || {
             let transport = BlecTransport {
                 notifications: notification_rx,
-                handler,
+                writes: write_tx,
             };
             let mut client = Client::new(transport, mtu);
             if let Err(error) = client.start() {
@@ -263,7 +276,6 @@ async fn start_r10(
             }
             let mut last_heartbeat = std::time::Instant::now();
             let mut last_tee_yards_sent: Option<f32> = None;
-            let mut write_timeouts: u32 = 0;
             loop {
                 if stop_rx.try_recv().is_ok() {
                     log::info!("[{session_id}] R10 session ended: stopped");
@@ -288,11 +300,7 @@ async fn start_r10(
                         last_tee_yards_sent = Some(yards);
                     }
                 }
-                let polled = client.poll();
-                if matches!(polled, Ok(Some(_))) {
-                    write_timeouts = 0;
-                }
-                match polled {
+                match client.poll() {
                     Ok(Some(Event::Registered { .. })) => {
                         log::info!("[{session_id}] R10 registered");
                         let _ = app.emit("r10://stage", "registered");
@@ -355,18 +363,6 @@ async fn start_r10(
                     }
                     Ok(_) => {}
                     Err(error) => match error {
-                        tenover::Error::Transport(inner)
-                            if inner.kind() == io::ErrorKind::TimedOut
-                                && write_timeouts + 1 < MAX_CONSECUTIVE_WRITE_TIMEOUTS =>
-                        {
-                            // Expected while the app is suspended between BLE
-                            // background wake windows: the write lands late or
-                            // the device retransmits, so keep the session.
-                            write_timeouts += 1;
-                            log::warn!(
-                                "[{session_id}] BLE write timed out ({write_timeouts}), continuing"
-                            );
-                        }
                         tenover::Error::Transport(inner) => {
                             log::error!("[{session_id}] R10 session transport failure: {inner}");
                             let _ = app.emit("r10://session-end", inner.to_string());
