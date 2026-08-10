@@ -163,11 +163,11 @@ impl BlecTransport {
             } else {
                 DATA_CHARACTERISTIC
             },
-            write_type: if register {
-                WriteType::WithResponse
-            } else {
-                WriteType::WithoutResponse
-            },
+            // Always write with response: CoreBluetooth without-response
+            // writes rely on send credits that run out during heavy inbound
+            // shot bursts, wedging btleplug indefinitely. The reference
+            // implementation (gsp-r10-adapter) also writes with response.
+            write_type: WriteType::WithResponse,
             payload: data.to_vec(),
         };
         use tokio::sync::mpsc::error::TrySendError;
