@@ -22,6 +22,9 @@ const DATA_CHARACTERISTIC: Uuid = uuid!("6a4e2820-667b-11e3-949a-0800200c9a66");
 
 const DEFAULT_TEE_DISTANCE_YARDS: f32 = 2.3;
 
+const WRITE_TIMEOUT: Duration = Duration::from_secs(3);
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+
 const DEFAULT_ATMOS: AtmosphericData = AtmosphericData {
     temp_f: 70.0,
     elevation_ft: 0.0,
@@ -133,23 +136,49 @@ impl Transport for BlecTransport {
     }
 
     fn write(&mut self, data: &[u8]) -> Result<(), io::Error> {
-        tauri::async_runtime::block_on(self.handler.send_data(
-            DATA_CHARACTERISTIC,
-            Some(MULTILINK_SERVICE),
-            data,
-            WriteType::WithoutResponse,
-        ))
-        .map_err(|error| io::Error::other(error.to_string()))
+        self.send(data, false)
     }
 
     fn write_register(&mut self, data: &[u8]) -> Result<(), io::Error> {
-        tauri::async_runtime::block_on(self.handler.send_data(
-            REGISTER_CHARACTERISTIC,
-            Some(MULTILINK_SERVICE),
-            data,
-            WriteType::WithResponse,
-        ))
-        .map_err(|error| io::Error::other(error.to_string()))
+        self.send(data, true)
+    }
+}
+
+impl BlecTransport {
+    fn send(&self, data: &[u8], register: bool) -> Result<(), io::Error> {
+        let characteristic = if register {
+            REGISTER_CHARACTERISTIC
+        } else {
+            DATA_CHARACTERISTIC
+        };
+        let write_type = if register {
+            WriteType::WithResponse
+        } else {
+            WriteType::WithoutResponse
+        };
+        let payload = data.to_vec();
+        let handler = self.handler;
+        let (done_tx, done_rx) = mpsc::channel();
+        tauri::async_runtime::spawn(async move {
+            let _ = done_tx.send(
+                handler
+                    .send_data(
+                        characteristic,
+                        Some(MULTILINK_SERVICE),
+                        &payload,
+                        write_type,
+                    )
+                    .await,
+            );
+        });
+        match done_rx.recv_timeout(WRITE_TIMEOUT) {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(io::Error::other(error.to_string())),
+            Err(_) => Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "BLE write timed out",
+            )),
+        }
     }
 }
 
@@ -159,6 +188,14 @@ async fn start_r10(
     state: State<'_, SessionState>,
     address: String,
 ) -> Result<(), String> {
+    if let Some(stop) = state
+        .stop
+        .lock()
+        .map_err(|_| "session state lock poisoned".to_string())?
+        .take()
+    {
+        let _ = stop.send(());
+    }
     let handler = get_handler().map_err(|error| error.to_string())?;
     if !handler.is_connected() {
         handler
@@ -213,36 +250,49 @@ async fn start_r10(
             };
             let mut client = Client::new(transport, mtu);
             if let Err(error) = client.start() {
+                log::error!("R10 session start failed: {error}");
                 let _ = app.emit("r10://error", error.to_string());
                 return;
             }
+            let mut last_heartbeat = std::time::Instant::now();
+            let mut last_tee_yards_sent: Option<f32> = None;
             loop {
                 if stop_rx.try_recv().is_ok() {
+                    log::info!("R10 session stopped");
                     break;
                 }
                 if client.phase() == "active" {
                     while let Ok(yards) = tee_rx.try_recv() {
+                        if Some(yards) == last_tee_yards_sent {
+                            continue;
+                        }
                         let config = ShotConfig {
                             tee_range: Some(yards),
                             ..ShotConfig::default()
                         };
                         if let Err(error) = client.send_shot_config(&config) {
+                            log::error!("failed to send tee distance configuration: {error}");
                             let _ = app.emit("r10://error", error.to_string());
                             break;
                         }
+                        last_tee_yards_sent = Some(yards);
                     }
                 }
                 match client.poll() {
                     Ok(Some(Event::Registered { .. })) => {
+                        log::info!("R10 registered");
                         let _ = app.emit("r10://stage", "registered");
                     }
                     Ok(Some(Event::HandshakeComplete)) => {
+                        log::info!("R10 handshake complete");
                         let _ = app.emit("r10://stage", "handshake-complete");
                     }
                     Ok(Some(Event::Subscribed { .. })) => {
+                        log::info!("subscribed to R10");
                         let _ = app.emit("r10://stage", "subscribed");
                     }
                     Ok(Some(Event::Shot(shot))) => {
+                        log::info!("R10 shot {}", shot.shot_id);
                         let _ = app.emit("r10://shot", &shot);
                         if let Some(metrics) = compute_shot_metrics(&shot) {
                             let _ = app.emit("r10://shot-metrics", &metrics);
@@ -254,6 +304,7 @@ async fn start_r10(
                         }
                     }
                     Ok(Some(Event::WakeUpResponse { .. })) => {
+                        log::info!("R10 woke up");
                         let _ = app.emit("r10://stage", "waking");
                         let yards = app
                             .state::<SessionState>()
@@ -261,12 +312,17 @@ async fn start_r10(
                             .lock()
                             .map(|state| *state)
                             .unwrap_or(DEFAULT_TEE_DISTANCE_YARDS);
-                        let config = ShotConfig {
-                            tee_range: Some(yards),
-                            ..ShotConfig::default()
-                        };
-                        if let Err(error) = client.send_shot_config(&config) {
-                            let _ = app.emit("r10://error", error.to_string());
+                        if Some(yards) != last_tee_yards_sent {
+                            let config = ShotConfig {
+                                tee_range: Some(yards),
+                                ..ShotConfig::default()
+                            };
+                            if let Err(error) = client.send_shot_config(&config) {
+                                log::error!("failed to send tee distance configuration: {error}");
+                                let _ = app.emit("r10://error", error.to_string());
+                            } else {
+                                last_tee_yards_sent = Some(yards);
+                            }
                         }
                     }
                     Ok(Some(Event::ShotConfigResponse { success })) => {
@@ -278,13 +334,25 @@ async fn start_r10(
                         }
                     }
                     Ok(Some(Event::DeviceError(error))) => {
+                        log::warn!("R10 reported a device error: {error:?}");
                         let _ = app.emit("r10://device-error", error);
                     }
                     Ok(_) => {}
-                    Err(error) => {
-                        let _ = app.emit("r10://error", error.to_string());
-                        break;
-                    }
+                    Err(error) => match error {
+                        tenover::Error::Transport(inner) => {
+                            log::error!("R10 session transport failure: {inner}");
+                            let _ = app.emit("r10://session-end", inner.to_string());
+                            let _ = app.emit("r10://error", inner.to_string());
+                            break;
+                        }
+                        other => {
+                            log::warn!("R10 protocol warning, continuing: {other}");
+                        }
+                    },
+                }
+                if last_heartbeat.elapsed() >= HEARTBEAT_INTERVAL {
+                    last_heartbeat = std::time::Instant::now();
+                    let _ = app.emit("r10://heartbeat", ());
                 }
                 thread::sleep(Duration::from_millis(5));
             }
@@ -294,7 +362,7 @@ async fn start_r10(
 }
 
 #[tauri::command]
-fn stop_r10(state: State<'_, SessionState>) -> Result<(), String> {
+async fn stop_r10(state: State<'_, SessionState>) -> Result<(), String> {
     if let Some(stop) = state
         .stop
         .lock()
@@ -303,12 +371,53 @@ fn stop_r10(state: State<'_, SessionState>) -> Result<(), String> {
     {
         let _ = stop.send(());
     }
+    if let Ok(handler) = get_handler() {
+        let _ = tauri::async_runtime::spawn(async move {
+            if let Err(error) = handler.unsubscribe(REGISTER_CHARACTERISTIC).await {
+                log::warn!("failed to unsubscribe from R10 notifications: {error}");
+            }
+        })
+        .await;
+    }
     Ok(())
 }
 
 #[tauri::command]
 fn connection_info() -> &'static str {
     "Garmin R10 session uses 10over over tauri-plugin-blec"
+}
+
+#[tauri::command]
+fn read_app_log(app: AppHandle) -> Result<String, String> {
+    use std::fs;
+    use std::time::UNIX_EPOCH;
+
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|error| error.to_string())?;
+    let mut newest: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
+    for entry in fs::read_dir(&dir)
+        .map_err(|error| error.to_string())?
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "log") {
+            let modified = fs::metadata(&path)
+                .and_then(|meta| meta.modified())
+                .unwrap_or(UNIX_EPOCH);
+            if newest.as_ref().is_none_or(|(t, _)| modified > *t) {
+                newest = Some((modified, path));
+            }
+        }
+    }
+    let path = newest
+        .map(|(_, path)| path)
+        .ok_or_else(|| "no log file found yet".to_string())?;
+    let content = fs::read_to_string(&path).map_err(|error| error.to_string())?;
+    let lines: Vec<&str> = content.lines().collect();
+    let tail_start = lines.len().saturating_sub(400);
+    Ok(lines[tail_start..].join("\n"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -319,22 +428,25 @@ pub fn run() {
         .plugin(tauri_plugin_blec::init())
         .plugin(tauri_plugin_tts::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            Ok(())
-        })
+        .plugin(
+            tauri_plugin_log::Builder::default()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
+                    tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
+                        file_name: None,
+                    }),
+                ])
+                .build(),
+        )
+        .setup(|_app| Ok(()))
         .invoke_handler(tauri::generate_handler![
             start_r10,
             stop_r10,
             set_voice_config,
             set_tee_distance,
-            connection_info
+            connection_info,
+            read_app_log
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

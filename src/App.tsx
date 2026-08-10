@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
@@ -92,6 +92,13 @@ const defaultEnabledMetrics: Record<MetricKey, boolean> = {
 const settingsStore = new LazyStore('settings.json')
 
 const TEE_DISTANCE_DEFAULT = 2.3
+
+const STALL_TIMEOUT_MS = 30000
+
+const RECONNECT_DELAY_MS = 2000
+const RECONNECT_ATTEMPTS = 2
+const BLE_CONNECT_TIMEOUT_MS = 6000
+const HANDSHAKE_TIMEOUT_MS = 10000
 const TEE_DISTANCE_MIN = 2.0
 const TEE_DISTANCE_MAX = 2.6
 const TEE_DISTANCE_STEP = 0.1
@@ -143,12 +150,18 @@ function App() {
   const [enabledMetrics, setEnabledMetrics] = useState<Record<MetricKey, boolean>>(defaultEnabledMetrics)
   const [activeTab, setActiveTab] = useState<Tab>('stats')
   const [previewSpeaking, setPreviewSpeaking] = useState(false)
+  const [copyingLogs, setCopyingLogs] = useState(false)
+  const [logCopyState, setLogCopyState] = useState('')
   const attemptRef = useRef(0)
   const scanTimerRef = useRef<number | null>(null)
   const readyTimerRef = useRef<number | null>(null)
   const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
   const metricsByShotRef = useRef(new Map<number, Pick<R10ShotMetrics, 'carry_yards' | 'total_yards'>>())
+  const lastHeartbeatRef = useRef(0)
+  const selectedAddressRef = useRef('')
+  const reconnectAttemptsRef = useRef(0)
+  const reconnectingRef = useRef(false)
 
   const connectionBusy = cleaningUp || ['scanning', 'connecting'].includes(connectionPhase)
 
@@ -172,6 +185,78 @@ function App() {
       handshakeTimerRef.current = null
     }
   }
+
+  const connectAndStart = useCallback(async (address: string, attemptId: number) => {
+    if (isTauriRuntime()) {
+      await invoke('stop_r10').catch(() => undefined)
+      await disconnectBle().catch(() => undefined)
+    }
+    const bleConnect = connectBle(address, () => {
+      if (attemptRef.current !== attemptId) return
+      reconnectingRef.current = false
+      setConnected(false)
+      setConnectionError('Bluetooth connection lost')
+      setConnectionPhase('error')
+      setConnectionOpen(true)
+    })
+    const timeoutError = new Error('Bluetooth connect timed out')
+    let timeoutId: number | null = null
+    const bleTimeout = new Promise<never>((_, reject) => {
+      timeoutId = window.setTimeout(() => reject(timeoutError), BLE_CONNECT_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([bleConnect, bleTimeout])
+    } catch (error) {
+      void bleConnect.then(() => undefined, () => undefined)
+      if (attemptRef.current !== attemptId) return
+      if (error !== timeoutError) throw error
+      clearHandshakeTimer()
+      connectLockRef.current = false
+      void disconnectBle().catch(() => undefined)
+      void invoke('stop_r10').catch(() => undefined)
+      throw error
+    } finally {
+      if (timeoutId !== null) window.clearTimeout(timeoutId)
+    }
+    if (attemptRef.current !== attemptId) return
+    handshakeTimerRef.current = window.setTimeout(() => {
+      if (attemptRef.current !== attemptId) return
+      connectLockRef.current = false
+      reconnectingRef.current = false
+      setConnectionError('The R10 did not respond to the connection request. Turn it off and on, then retry.')
+      setConnectionPhase('error')
+      setConnectionOpen(true)
+      void disconnectBle().catch(() => undefined)
+      void invoke('stop_r10').catch(() => undefined)
+    }, HANDSHAKE_TIMEOUT_MS)
+    await invoke('start_r10', { address })
+  }, [])
+
+  const reconnectLoop = useCallback((address: string) => {
+    reconnectAttemptsRef.current += 1
+    if (reconnectAttemptsRef.current > RECONNECT_ATTEMPTS) {
+      reconnectAttemptsRef.current = 0
+      reconnectingRef.current = false
+      connectLockRef.current = false
+      setConnected(false)
+      setConnectionError('Could not reconnect to the R10. Retry manually to keep hitting.')
+      setConnectionPhase('error')
+      setConnectionOpen(true)
+      return
+    }
+    reconnectingRef.current = true
+    setConnected(false)
+    setConnectionPhase('connecting')
+    const attemptId = ++attemptRef.current
+    window.setTimeout(() => {
+      if (attemptRef.current !== attemptId) return
+      connectLockRef.current = true
+      void connectAndStart(address, attemptId).catch(() => {
+        if (attemptRef.current !== attemptId) return
+        reconnectLoop(address)
+      })
+    }, RECONNECT_DELAY_MS)
+  }, [connectAndStart])
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -244,6 +329,12 @@ function App() {
       if (active) dispose = unlisten
       else unlisten()
     }).catch(() => undefined)
+    void listen<unknown>('r10://heartbeat', () => {
+      lastHeartbeatRef.current = Date.now()
+    }).then((unlisten) => {
+      if (active) dispose = unlisten
+      else unlisten()
+    }).catch(() => undefined)
     return () => {
       active = false
       dispose?.()
@@ -256,14 +347,18 @@ function App() {
     let disposeStage: (() => void) | undefined
     let disposeError: (() => void) | undefined
     let disposeDeviceError: (() => void) | undefined
+    let disposeSessionEnd: (() => void) | undefined
     void listen<string>('r10://stage', ({ payload }) => {
       if (payload === 'waking') {
         clearHandshakeTimer()
         connectLockRef.current = false
+        reconnectAttemptsRef.current = 0
+        reconnectingRef.current = false
         setConnected(true)
         setConnectionStatus('R10 connected, waiting for your swing.')
         setConnectionError('')
         setConnectionPhase('ready')
+        lastHeartbeatRef.current = Date.now()
         clearReadyTimer()
         readyTimerRef.current = window.setTimeout(() => {
           setConnectionOpen(false)
@@ -281,6 +376,7 @@ function App() {
       clearReadyTimer()
       connectLockRef.current = false
       setConnected(false)
+      if (reconnectingRef.current) return
       setConnectionStatus(payload)
       setConnectionError(payload)
       setConnectionPhase('error')
@@ -295,19 +391,46 @@ function App() {
       if (active) disposeDeviceError = unlisten
       else unlisten()
     }).catch(() => undefined)
+    void listen<string>('r10://session-end', () => {
+      if (!selectedAddressRef.current || reconnectingRef.current) return
+      reconnectLoop(selectedAddressRef.current)
+    }).then((unlisten) => {
+      if (active) disposeSessionEnd = unlisten
+      else unlisten()
+    }).catch(() => undefined)
     return () => {
       active = false
       disposeStage?.()
       disposeError?.()
       disposeDeviceError?.()
+      disposeSessionEnd?.()
     }
-  }, [])
+  }, [reconnectLoop])
 
   useEffect(() => () => {
     clearScanTimer()
     clearReadyTimer()
     clearHandshakeTimer()
   }, [])
+
+  useEffect(() => {
+    if (!connected || connectionPhase !== 'ready') return
+    const id = window.setInterval(() => {
+      if (lastHeartbeatRef.current !== 0 && Date.now() - lastHeartbeatRef.current > STALL_TIMEOUT_MS) {
+        lastHeartbeatRef.current = 0
+        ++attemptRef.current
+        clearReadyTimer()
+        clearHandshakeTimer()
+        setConnected(false)
+        setConnectionError('The R10 session stalled. Retry the connection to keep hitting.')
+        setConnectionPhase('error')
+        setConnectionOpen(true)
+        void disconnectBle().catch(() => undefined)
+        void invoke('stop_r10').catch(() => undefined)
+      }
+    }, 5000)
+    return () => window.clearInterval(id)
+  }, [connected, connectionPhase])
 
   const speedUnit = units === 'imperial' ? 'mph' : 'km/h'
   const convertSpeed = (value: number) => units === 'imperial' ? value : value * 1.60934
@@ -333,6 +456,21 @@ function App() {
       setPreviewSpeaking(true)
       void speak({ text: speechPreview, language: 'en-US', voiceId: null, rate: 1, pitch: 1, volume: 1, queueMode: 'flush' })
         .catch(() => setPreviewSpeaking(false))
+    }
+  }
+
+  const copySessionLogs = async () => {
+    if (!isTauriRuntime() || copyingLogs) return
+    setCopyingLogs(true)
+    setLogCopyState('')
+    try {
+      const logs = await invoke<string>('read_app_log')
+      await navigator.clipboard.writeText(logs)
+      setLogCopyState('Copied. Paste it when reporting a stall.')
+    } catch {
+      setLogCopyState('Could not read the session log.')
+    } finally {
+      setCopyingLogs(false)
     }
   }
 
@@ -414,31 +552,14 @@ function App() {
     clearReadyTimer()
     const attemptId = ++attemptRef.current
     setSelectedDevice(device)
+    selectedAddressRef.current = device.address
     setConnectionPhase('connecting')
     setConnectionError('')
     setConnectionStatus('Connecting to Approach R10 over Bluetooth...')
     try {
       await stopScan().catch(() => undefined)
       if (attemptRef.current !== attemptId) return
-      await connectBle(device.address, () => {
-        if (attemptRef.current !== attemptId) return
-        setConnected(false)
-        setConnectionError('Bluetooth connection lost')
-        setConnectionPhase('error')
-        setConnectionOpen(true)
-      })
-      if (attemptRef.current !== attemptId) return
-      if (attemptRef.current !== attemptId) return
-      handshakeTimerRef.current = window.setTimeout(() => {
-        if (attemptRef.current !== attemptId) return
-        connectLockRef.current = false
-        setConnectionError('The R10 did not respond to the connection request. Turn it off and on, then retry.')
-        setConnectionPhase('error')
-        setConnectionOpen(true)
-        void disconnectBle().catch(() => undefined)
-        void invoke('stop_r10').catch(() => undefined)
-      }, 20000)
-      await invoke('start_r10', { address: device.address })
+      await connectAndStart(device.address, attemptId)
       if (attemptRef.current === attemptId) setPreferredR10Address(device.address)
     } catch (error) {
       if (attemptRef.current !== attemptId) return
@@ -475,6 +596,28 @@ function App() {
     setCleaningUp(false)
   }
 
+  const disconnectFromR10 = async () => {
+    if (cleaningUp) return
+    setCleaningUp(true)
+    ++attemptRef.current
+    reconnectAttemptsRef.current = 0
+    reconnectingRef.current = false
+    selectedAddressRef.current = ''
+    clearScanTimer()
+    clearReadyTimer()
+    clearHandshakeTimer()
+    setConnectionStatus('Disconnecting from your R10...')
+    await stopScan().catch(() => undefined)
+    void disconnectBle().catch(() => undefined)
+    if (isTauriRuntime()) await invoke('stop_r10').catch(() => undefined)
+    setConnected(false)
+    setConnectionError('')
+    setSelectedDevice(null)
+    setConnectionPhase('idle')
+    setConnectionOpen(false)
+    setCleaningUp(false)
+  }
+
   const chooseAnotherDevice = async () => {
     if (cleaningUp) return
     setCleaningUp(true)
@@ -497,9 +640,9 @@ function App() {
       <div className="mx-auto grid h-full w-full max-w-[1480px] grid-rows-[auto_minmax(0,1fr)_auto]">
         <header className="flex items-center justify-between border-b border-border/80 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7">
           <Brand />
-          <Button size="sm" variant={connected ? 'secondary' : 'outline'} onClick={() => { if (!connected) void scanForR10() }} disabled={connectionOpen || connected}>
+          <Button size="sm" variant={connected ? 'outline' : 'secondary'} onClick={() => { if (connected) void disconnectFromR10(); else void scanForR10() }} disabled={connectionOpen || cleaningUp || connectionBusy}>
             {connectionBusy ? <LoaderCircle className="animate-spin" /> : connected ? <BluetoothConnected /> : <Bluetooth />}
-            {connected ? 'Connected' : connectionBusy ? 'Connecting' : 'Connect'}
+            {connected ? 'Disconnect' : connectionBusy ? 'Connecting' : 'Connect R10'}
           </Button>
         </header>
 
@@ -591,6 +734,17 @@ function App() {
                         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{speechPreview}</p>
                       </div>
                       <Button size="icon" variant={previewSpeaking ? 'secondary' : 'default'} onClick={togglePreview} aria-label={previewSpeaking ? 'Stop preview' : 'Play preview'}>{previewSpeaking ? <Pause /> : <Play />}</Button>
+                    </div>
+                  </section>
+
+                  <section className="px-4 py-4 sm:px-6">
+                    <p className="text-sm font-semibold">Debug</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">Copy the recent session log when something goes wrong with the R10.</p>
+                    <div className="mt-3 flex items-center gap-3">
+                      <Button variant="outline" size="sm" onClick={() => void copySessionLogs()} disabled={!isTauriRuntime() || copyingLogs}>
+                        {copyingLogs ? 'Copying...' : 'Copy session logs'}
+                      </Button>
+                      {logCopyState && <span className="text-xs text-muted-foreground">{logCopyState}</span>}
                     </div>
                   </section>
                 </CardContent>
