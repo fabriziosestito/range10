@@ -79,6 +79,7 @@ dependencies = [
  "tauri-plugin-store",
  "tauri-plugin-tts",
  "tenover",
+ "time",
  "tokio",
  "uuid",
 ]

@@ -232,6 +232,8 @@ async fn start_r10(
 
     let (voice_tx, voice_rx) = mpsc::channel::<String>();
     let voice_app = app.clone();
+    let session_id = Uuid::new_v4();
+    log::info!("[{session_id}] R10 session starting -> {address}");
     thread::Builder::new()
         .name("r10-voice".into())
         .spawn(move || {
@@ -250,15 +252,16 @@ async fn start_r10(
             };
             let mut client = Client::new(transport, mtu);
             if let Err(error) = client.start() {
-                log::error!("R10 session start failed: {error}");
+                log::error!("[{session_id}] R10 session start failed: {error}");
                 let _ = app.emit("r10://error", error.to_string());
+                log::info!("[{session_id}] R10 session ended: start failure");
                 return;
             }
             let mut last_heartbeat = std::time::Instant::now();
             let mut last_tee_yards_sent: Option<f32> = None;
             loop {
                 if stop_rx.try_recv().is_ok() {
-                    log::info!("R10 session stopped");
+                    log::info!("[{session_id}] R10 session ended: stopped");
                     break;
                 }
                 if client.phase() == "active" {
@@ -271,7 +274,9 @@ async fn start_r10(
                             ..ShotConfig::default()
                         };
                         if let Err(error) = client.send_shot_config(&config) {
-                            log::error!("failed to send tee distance configuration: {error}");
+                            log::error!(
+                                "[{session_id}] failed to send tee distance configuration: {error}"
+                            );
                             let _ = app.emit("r10://error", error.to_string());
                             break;
                         }
@@ -280,19 +285,19 @@ async fn start_r10(
                 }
                 match client.poll() {
                     Ok(Some(Event::Registered { .. })) => {
-                        log::info!("R10 registered");
+                        log::info!("[{session_id}] R10 registered");
                         let _ = app.emit("r10://stage", "registered");
                     }
                     Ok(Some(Event::HandshakeComplete)) => {
-                        log::info!("R10 handshake complete");
+                        log::info!("[{session_id}] R10 handshake complete");
                         let _ = app.emit("r10://stage", "handshake-complete");
                     }
                     Ok(Some(Event::Subscribed { .. })) => {
-                        log::info!("subscribed to R10");
+                        log::info!("[{session_id}] subscribed to R10");
                         let _ = app.emit("r10://stage", "subscribed");
                     }
                     Ok(Some(Event::Shot(shot))) => {
-                        log::info!("R10 shot {}", shot.shot_id);
+                        log::info!("[{session_id}] R10 shot {}", shot.shot_id);
                         let _ = app.emit("r10://shot", &shot);
                         if let Some(metrics) = compute_shot_metrics(&shot) {
                             let _ = app.emit("r10://shot-metrics", &metrics);
@@ -304,7 +309,7 @@ async fn start_r10(
                         }
                     }
                     Ok(Some(Event::WakeUpResponse { .. })) => {
-                        log::info!("R10 woke up");
+                        log::info!("[{session_id}] R10 woke up");
                         let _ = app.emit("r10://stage", "waking");
                         let yards = app
                             .state::<SessionState>()
@@ -318,7 +323,9 @@ async fn start_r10(
                                 ..ShotConfig::default()
                             };
                             if let Err(error) = client.send_shot_config(&config) {
-                                log::error!("failed to send tee distance configuration: {error}");
+                                log::error!(
+                                    "[{session_id}] failed to send tee distance configuration: {error}"
+                                );
                                 let _ = app.emit("r10://error", error.to_string());
                             } else {
                                 last_tee_yards_sent = Some(yards);
@@ -327,26 +334,27 @@ async fn start_r10(
                     }
                     Ok(Some(Event::ShotConfigResponse { success })) => {
                         if !success {
-                            log::warn!("R10 rejected tee distance configuration");
+                            log::warn!("[{session_id}] R10 rejected tee distance configuration");
                             let _ = app.emit("r10://error", "tee config rejected".to_string());
                         } else {
-                            log::info!("R10 accepted tee distance configuration");
+                            log::info!("[{session_id}] R10 accepted tee distance configuration");
                         }
                     }
                     Ok(Some(Event::DeviceError(error))) => {
-                        log::warn!("R10 reported a device error: {error:?}");
+                        log::warn!("[{session_id}] R10 reported a device error: {error:?}");
                         let _ = app.emit("r10://device-error", error);
                     }
                     Ok(_) => {}
                     Err(error) => match error {
                         tenover::Error::Transport(inner) => {
-                            log::error!("R10 session transport failure: {inner}");
+                            log::error!("[{session_id}] R10 session transport failure: {inner}");
                             let _ = app.emit("r10://session-end", inner.to_string());
                             let _ = app.emit("r10://error", inner.to_string());
+                            log::info!("[{session_id}] R10 session ended: transport failure");
                             break;
                         }
                         other => {
-                            log::warn!("R10 protocol warning, continuing: {other}");
+                            log::warn!("[{session_id}] R10 protocol warning, continuing: {other}");
                         }
                     },
                 }
@@ -431,6 +439,22 @@ pub fn run() {
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
+                .format(|out, message, record| {
+                    let format = time::macros::format_description!(
+                        "[[[year]-[month]-[day]][[[hour]:[minute]:[second]]"
+                    );
+                    let now = tauri_plugin_log::TimezoneStrategy::UseLocal.get_now();
+                    out.finish(format_args!(
+                        "{}[{}][{}] {}",
+                        now.format(&format)
+                            .unwrap_or_else(|_| "[unknown time]".into()),
+                        record.level(),
+                        record.target(),
+                        message
+                    ));
+                })
+                .max_file_size(2_000_000)
+                .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepOne)
                 .targets([
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::Stdout),
                     tauri_plugin_log::Target::new(tauri_plugin_log::TargetKind::LogDir {
