@@ -63,7 +63,11 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
         Ok(result) => {
             // Interleaved (lateral x, downrange y, height z) in yards.
             let carry_offset = result.carry_index * 3;
-            let carry_downrange = result.trajectory.get(carry_offset + 1).copied().unwrap_or(result.carry_yards);
+            let carry_downrange = result
+                .trajectory
+                .get(carry_offset + 1)
+                .copied()
+                .unwrap_or(result.carry_yards);
             let carry_lateral = result.trajectory.get(carry_offset).copied().unwrap_or(0.0);
             Some(ShotMetrics {
                 shot_id: shot.shot_id,

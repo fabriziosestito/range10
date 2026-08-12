@@ -128,11 +128,44 @@ export type StatMetricKey =
   | 'tempo'
   | 'timeOfFlight'
 
+export type StatMetricKind = 'distance' | 'speed' | 'spin' | 'spinSigned' | 'degrees' | 'degreesSigned' | 'seconds' | 'smash' | 'tempo'
+
 export type StatMetric = {
   key: StatMetricKey
   label: string
+  kind: StatMetricKind
   value: (shot: Shot) => number
   format: (value: number, units: 'imperial' | 'metric') => string
+}
+
+export type HighlightParts = { value: string; unit?: string }
+
+export function highlightParts(metric: StatMetric, shot: Shot, units: 'imperial' | 'metric'): HighlightParts {
+  const raw = metric.value(shot)
+  switch (metric.kind) {
+    case 'distance': {
+      const converted = units === 'imperial' ? raw : yardsToMeters(raw)
+      return { value: converted.toFixed(1), unit: units === 'imperial' ? 'yd' : 'm' }
+    }
+    case 'speed': {
+      const converted = units === 'imperial' ? raw : raw * 1.60934
+      return { value: converted.toFixed(1), unit: units === 'imperial' ? 'mph' : 'km/h' }
+    }
+    case 'spin':
+      return { value: raw.toFixed(0), unit: 'RPM' }
+    case 'spinSigned':
+      return { value: `${raw > 0 ? '+' : ''}${raw.toFixed(0)}`, unit: 'RPM' }
+    case 'degrees':
+      return { value: `${raw.toFixed(1)}°` }
+    case 'degreesSigned':
+      return { value: `${raw > 0 ? '+' : ''}${raw.toFixed(1)}°` }
+    case 'seconds':
+      return { value: `${raw.toFixed(1)} s` }
+    case 'smash':
+      return { value: raw.toFixed(2) }
+    case 'tempo':
+      return raw > 0 ? { value: formatTempo(raw) } : { value: '—' }
+  }
 }
 
 export const smashFactorOf = (shot: Shot) => (shot.clubSpeed > 0 ? shot.ballSpeed / shot.clubSpeed : 0)
@@ -169,28 +202,28 @@ const degrees = (key: keyof Shot): StatMetric['value'] => (shot) => shot[key]
 const speed = (key: keyof Shot): StatMetric['value'] => (shot) => shot[key]
 
 export const statMetrics: StatMetric[] = [
-  { key: 'carry', label: 'Carry Distance', value: distance('carry'), format: (v, u) => formatDistance(v, u) },
-  { key: 'total', label: 'Total Distance', value: distance('total'), format: (v, u) => formatDistance(v, u) },
-  { key: 'offline', label: 'Total Deviation', value: distance('offline'), format: (v, u) => formatDistance(v, u) },
-  { key: 'totalDeviationDeg', label: 'Total Deviation Angle', value: degrees('totalDeviationDeg'), format: (v) => formatSignedDegrees(v) },
-  { key: 'carryOffline', label: 'Carry Deviation', value: distance('carryOffline'), format: (v, u) => formatDistance(v, u) },
-  { key: 'carryDeviationDeg', label: 'Carry Deviation Angle', value: degrees('carryDeviationDeg'), format: (v) => formatSignedDegrees(v) },
-  { key: 'clubSpeed', label: 'Club Speed', value: speed('clubSpeed'), format: (v, u) => formatSpeed(v, u) },
-  { key: 'ballSpeed', label: 'Ball Speed', value: speed('ballSpeed'), format: (v, u) => formatSpeed(v, u) },
-  { key: 'smashFactor', label: 'Smash Factor', value: smashFactorOf, format: (v) => formatSmash(v) },
-  { key: 'launch', label: 'Launch Angle', value: degrees('launch'), format: (v) => formatPlainDegrees(v) },
-  { key: 'launchDirection', label: 'Launch Direction', value: degrees('launchDirection'), format: (v) => formatSignedDegrees(v) },
-  { key: 'path', label: 'Club Path', value: degrees('path'), format: (v) => formatSignedDegrees(v) },
-  { key: 'face', label: 'Club Face', value: degrees('face'), format: (v) => formatSignedDegrees(v) },
-  { key: 'faceToPath', label: 'Face to Path', value: faceToPathOf, format: (v) => formatSignedDegrees(v) },
-  { key: 'attack', label: 'Attack Angle', value: degrees('attack'), format: (v) => formatSignedDegrees(v) },
-  { key: 'spin', label: 'Spin Rate', value: speed('spin'), format: (v) => formatRounds(v) },
-  { key: 'backspin', label: 'Backspin', value: speed('backspin'), format: (v) => formatRounds(v) },
-  { key: 'sidespin', label: 'Sidespin', value: speed('sidespin'), format: (v) => formatRounds(v) },
-  { key: 'spinAxis', label: 'Spin Axis', value: degrees('spinAxis'), format: (v) => formatSignedDegrees(v) },
-  { key: 'apex', label: 'Apex Height', value: distance('apex'), format: (v, u) => formatDistance(v, u) },
-  { key: 'tempo', label: 'Tempo', value: speed('tempo'), format: (v) => (v > 0 ? formatTempo(v) : '—') },
-  { key: 'timeOfFlight', label: 'Time of Flight', value: speed('timeOfFlight'), format: (v) => formatSeconds(v) },
+  { key: 'carry', label: 'Carry Distance', kind: 'distance', value: distance('carry'), format: (v, u) => formatDistance(v, u) },
+  { key: 'total', label: 'Total Distance', kind: 'distance', value: distance('total'), format: (v, u) => formatDistance(v, u) },
+  { key: 'offline', label: 'Total Deviation', kind: 'distance', value: distance('offline'), format: (v, u) => formatDistance(v, u) },
+  { key: 'totalDeviationDeg', label: 'Total Deviation Angle', kind: 'degreesSigned', value: degrees('totalDeviationDeg'), format: (v) => formatSignedDegrees(v) },
+  { key: 'carryOffline', label: 'Carry Deviation', kind: 'distance', value: distance('carryOffline'), format: (v, u) => formatDistance(v, u) },
+  { key: 'carryDeviationDeg', label: 'Carry Deviation Angle', kind: 'degreesSigned', value: degrees('carryDeviationDeg'), format: (v) => formatSignedDegrees(v) },
+  { key: 'clubSpeed', label: 'Club Speed', kind: 'speed', value: speed('clubSpeed'), format: (v, u) => formatSpeed(v, u) },
+  { key: 'ballSpeed', label: 'Ball Speed', kind: 'speed', value: speed('ballSpeed'), format: (v, u) => formatSpeed(v, u) },
+  { key: 'smashFactor', label: 'Smash Factor', kind: 'smash', value: smashFactorOf, format: (v) => formatSmash(v) },
+  { key: 'launch', label: 'Launch Angle', kind: 'degrees', value: degrees('launch'), format: (v) => formatPlainDegrees(v) },
+  { key: 'launchDirection', label: 'Launch Direction', kind: 'degreesSigned', value: degrees('launchDirection'), format: (v) => formatSignedDegrees(v) },
+  { key: 'path', label: 'Club Path', kind: 'degreesSigned', value: degrees('path'), format: (v) => formatSignedDegrees(v) },
+  { key: 'face', label: 'Club Face', kind: 'degreesSigned', value: degrees('face'), format: (v) => formatSignedDegrees(v) },
+  { key: 'faceToPath', label: 'Face to Path', kind: 'degreesSigned', value: faceToPathOf, format: (v) => formatSignedDegrees(v) },
+  { key: 'attack', label: 'Attack Angle', kind: 'degreesSigned', value: degrees('attack'), format: (v) => formatSignedDegrees(v) },
+  { key: 'spin', label: 'Spin Rate', kind: 'spin', value: speed('spin'), format: (v) => formatRounds(v) },
+  { key: 'backspin', label: 'Backspin', kind: 'spin', value: speed('backspin'), format: (v) => formatRounds(v) },
+  { key: 'sidespin', label: 'Sidespin', kind: 'spinSigned', value: speed('sidespin'), format: (v) => formatRounds(v) },
+  { key: 'spinAxis', label: 'Spin Axis', kind: 'degreesSigned', value: degrees('spinAxis'), format: (v) => formatSignedDegrees(v) },
+  { key: 'apex', label: 'Apex Height', kind: 'distance', value: distance('apex'), format: (v, u) => formatDistance(v, u) },
+  { key: 'tempo', label: 'Tempo', kind: 'tempo', value: speed('tempo'), format: (v) => (v > 0 ? formatTempo(v) : '—') },
+  { key: 'timeOfFlight', label: 'Time of Flight', kind: 'seconds', value: speed('timeOfFlight'), format: (v) => formatSeconds(v) },
 ]
 
 export function connectionTitle(phase: ConnectionPhase) {

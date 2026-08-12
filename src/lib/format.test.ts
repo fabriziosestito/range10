@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
+import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
@@ -196,6 +196,38 @@ describe('statMetrics registry', () => {
     const faceToPath = statMetrics.find((metric) => metric.key === 'faceToPath')!
     expect(smash.value(shot)).toBeCloseTo(144.8 / 98.4, 4)
     expect(faceToPath.value(shot)).toBeCloseTo(-0.8, 4)
+  })
+})
+
+describe('highlightParts', () => {
+  it('splits distance values from their unit in both unit systems', () => {
+    const carry = statMetrics.find((metric) => metric.key === 'carry')!
+    expect(highlightParts(carry, shot, 'imperial')).toEqual({ value: '168.5', unit: 'yd' })
+    expect(highlightParts(carry, shot, 'metric')).toEqual({ value: '154.1', unit: 'm' })
+  })
+
+  it('splits speed values from their unit and converts in metric', () => {
+    const clubSpeed = statMetrics.find((metric) => metric.key === 'clubSpeed')!
+    expect(highlightParts(clubSpeed, shot, 'imperial')).toEqual({ value: '98.4', unit: 'mph' })
+    expect(highlightParts(clubSpeed, shot, 'metric')).toEqual({ value: '158.4', unit: 'km/h' })
+  })
+
+  it('keeps spin as whole RPM with a separate unit', () => {
+    const backspin = statMetrics.find((metric) => metric.key === 'backspin')!
+    expect(highlightParts(backspin, shot, 'imperial')).toEqual({ value: '2410', unit: 'RPM' })
+  })
+
+  it('marks signed angles with explicit sign', () => {
+    const deviation = statMetrics.find((metric) => metric.key === 'carryDeviationDeg')!
+    expect(highlightParts(deviation, shot, 'imperial')).toEqual({ value: '+0.9°' })
+  })
+
+  it('returns values with no unit for smash and tempo', () => {
+    const smash = statMetrics.find((metric) => metric.key === 'smashFactor')!
+    const tempo = statMetrics.find((metric) => metric.key === 'tempo')!
+    expect(highlightParts(smash, shot, 'imperial')).toEqual({ value: '1.47' })
+    expect(highlightParts(tempo, shot, 'imperial')).toEqual({ value: '3:1' })
+    expect(highlightParts(tempo, { ...shot, tempo: 0 }, 'imperial')).toEqual({ value: '—' })
   })
 })
 

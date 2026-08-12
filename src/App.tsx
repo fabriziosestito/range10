@@ -48,6 +48,7 @@ import {
   formatMetric,
   formatTeeDistance,
   formatTempo,
+  highlightParts,
   statMetrics,
   withMetrics,
   type ConnectionPhase,
@@ -781,14 +782,17 @@ function App() {
                   </div>
                 </CardHeader>
                 <CardContent className={cn('relative flex min-h-0 flex-1 flex-col', statsExpanded ? 'gap-4 px-4 pb-4 sm:px-6 sm:pb-6' : 'gap-5 px-4 pb-5 sm:px-7 sm:pb-7')}>
-                  <div className="grid shrink-0 grid-cols-3 gap-2 sm:gap-4">
+                  <div className="grid shrink-0 grid-cols-3 gap-1.5 sm:gap-4">
                     {pinnedMetrics.map((key) => {
                       const metric = statMetricByKey[key]
-                      const value = hasShot ? metric.format(metric.value(shot), units) : '—'
+                      const parts = hasShot ? highlightParts(metric, shot, units) : { value: '—' }
                       return (
-                        <div key={key} className="min-w-0 rounded-2xl border border-border/70 bg-background/25 p-3 sm:p-5">
-                          <p className="truncate font-mono text-[0.6rem] uppercase tracking-[0.14em] text-muted-foreground sm:text-[0.65rem]">{metric.label}</p>
-                          <p className={cn('mt-1 truncate font-serif font-normal leading-none tracking-[-0.04em]', statsExpanded ? 'text-[clamp(1.6rem,6vw,4rem)]' : 'text-[clamp(1.25rem,4.5vw,2.5rem)]')}>{value}</p>
+                        <div key={key} className="min-w-0 rounded-2xl border border-border/70 bg-background/25 p-2.5 sm:p-5">
+                          <p className="truncate font-mono text-[0.68rem] uppercase tracking-[0.08em] text-muted-foreground leading-relaxed" title={metric.label}>{metric.label}</p>
+                          <div className="mt-1 flex min-w-0 items-baseline gap-1">
+                            <span className={cn('min-w-0 truncate font-serif font-normal leading-none tracking-[-0.04em]', statsExpanded ? 'text-[clamp(1.6rem,6vw,4rem)]' : 'text-[clamp(1.2rem,4.2vw,2.5rem)]')}>{parts.value}</span>
+                            {parts.unit != null && <span className="shrink-0 font-mono text-[0.7rem] text-muted-foreground sm:text-xs">{parts.unit}</span>}
+                          </div>
                         </div>
                       )
                     })}
