@@ -44,6 +44,9 @@ struct ShotMetrics {
     apex_yards: f32,
     offline_yards: f32,
     time_of_flight: f32,
+    carry_offline_yards: f32,
+    carry_deviation_deg: f32,
+    total_deviation_deg: f32,
 }
 
 fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> {
@@ -57,14 +60,23 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
         ..Default::default()
     };
     match libgolf_rs::run_shot(launch, DEFAULT_ATMOS, GroundSurface::default()) {
-        Ok(result) => Some(ShotMetrics {
-            shot_id: shot.shot_id,
-            carry_yards: result.carry_yards,
-            total_yards: result.total_yards,
-            apex_yards: result.apex_yards,
-            offline_yards: result.offline_yards,
-            time_of_flight: result.time_of_flight,
-        }),
+        Ok(result) => {
+            // Interleaved (lateral x, downrange y, height z) in yards.
+            let carry_offset = result.carry_index * 3;
+            let carry_downrange = result.trajectory.get(carry_offset + 1).copied().unwrap_or(result.carry_yards);
+            let carry_lateral = result.trajectory.get(carry_offset).copied().unwrap_or(0.0);
+            Some(ShotMetrics {
+                shot_id: shot.shot_id,
+                carry_yards: result.carry_yards,
+                total_yards: result.total_yards,
+                apex_yards: result.apex_yards,
+                offline_yards: result.offline_yards,
+                time_of_flight: result.time_of_flight,
+                carry_offline_yards: carry_lateral,
+                carry_deviation_deg: carry_lateral.atan2(carry_downrange).to_degrees(),
+                total_deviation_deg: result.bearing_deg,
+            })
+        }
         Err(error) => {
             log::warn!(
                 "flight simulation failed for shot {}: {error}",

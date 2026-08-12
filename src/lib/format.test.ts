@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, formatDistance, formatMetric, formatTeeDistance, formatTempo, yardsToMeters, type Shot } from './format'
+import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
@@ -13,6 +13,16 @@ const shot: Shot = {
   spin: 2420,
   carry: 168.5,
   total: 174.2,
+  launchDirection: 0.8,
+  spinAxis: 2.1,
+  backspin: 2410,
+  sidespin: 90,
+  apex: 24.5,
+  timeOfFlight: 5.9,
+  offline: 3.2,
+  carryOffline: 2.5,
+  carryDeviationDeg: 0.9,
+  totalDeviationDeg: 1.1,
 }
 
 describe('formatMetric', () => {
@@ -133,5 +143,81 @@ describe('formatTeeDistance', () => {
 
   it('converts and labels metric values in meters', () => {
     expect(formatTeeDistance(2.3, 'metric')).toBe('2.1 m')
+  })
+})
+
+describe('derived metrics', () => {
+  it('computes smash factor from ball and club speed', () => {
+    expect(smashFactorOf(shot)).toBeCloseTo(144.8 / 98.4, 4)
+  })
+
+  it('returns zero smash factor without club speed', () => {
+    expect(smashFactorOf({ ...shot, clubSpeed: 0 })).toBe(0)
+  })
+
+  it('computes face to path as face minus path', () => {
+    expect(faceToPathOf(shot)).toBeCloseTo(-0.8, 4)
+  })
+})
+
+describe('statMetrics registry', () => {
+  it('exposes every pinnable metric key uniquely', () => {
+    const keys = statMetrics.map((metric) => metric.key)
+    expect(new Set(keys).size).toBe(keys.length)
+    expect(keys.length).toBe(22)
+  })
+
+  it('formats carry as a distance in both units', () => {
+    const carry = statMetrics.find((metric) => metric.key === 'carry')!
+    expect(carry.label).toBe('Carry Distance')
+    expect(carry.format(168.5, 'imperial')).toBe('168.5 yd')
+    expect(carry.format(168.5, 'metric')).toBe('154.1 m')
+  })
+
+  it('formats signed angle metrics with explicit sign', () => {
+    const deviation = statMetrics.find((metric) => metric.key === 'carryDeviationDeg')!
+    expect(deviation.format(0.9, 'imperial')).toBe('+0.9°')
+    expect(deviation.format(-1.2, 'imperial')).toBe('-1.2°')
+  })
+
+  it('formats spin metrics as whole RPM', () => {
+    const backspin = statMetrics.find((metric) => metric.key === 'backspin')!
+    expect(backspin.format(2410, 'imperial')).toBe('2410 RPM')
+  })
+
+  it('formats tempo and marks missing tempo as an em dash', () => {
+    const tempo = statMetrics.find((metric) => metric.key === 'tempo')!
+    expect(tempo.format(3, 'imperial')).toBe('3:1')
+    expect(tempo.format(0, 'imperial')).toBe('—')
+  })
+
+  it('reads derived values from the shot', () => {
+    const smash = statMetrics.find((metric) => metric.key === 'smashFactor')!
+    const faceToPath = statMetrics.find((metric) => metric.key === 'faceToPath')!
+    expect(smash.value(shot)).toBeCloseTo(144.8 / 98.4, 4)
+    expect(faceToPath.value(shot)).toBeCloseTo(-0.8, 4)
+  })
+})
+
+describe('withMetrics', () => {
+  it('merges metric values into a shot', () => {
+    const result = withMetrics(shot, {
+      carry_yards: 170,
+      total_yards: 176,
+      apex_yards: 26,
+      offline_yards: 4,
+      time_of_flight: 6.1,
+      carry_offline_yards: 3,
+      carry_deviation_deg: 1.1,
+      total_deviation_deg: 1.3,
+    })
+    expect(result.carry).toBe(170)
+    expect(result.apex).toBe(26)
+    expect(result.offline).toBe(4)
+    expect(result.totalDeviationDeg).toBe(1.3)
+  })
+
+  it('leaves the shot untouched when metrics are missing', () => {
+    expect(withMetrics(shot, undefined)).toBe(shot)
   })
 })

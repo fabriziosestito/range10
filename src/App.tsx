@@ -14,8 +14,11 @@ import {
   Gauge,
   List,
   LoaderCircle,
+  Maximize2,
   Minus,
+  Minimize2,
   Pause,
+  Pin,
   Play,
   Plus,
   Radio,
@@ -29,6 +32,7 @@ import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
@@ -44,11 +48,14 @@ import {
   formatMetric,
   formatTeeDistance,
   formatTempo,
+  statMetrics,
+  withMetrics,
   type ConnectionPhase,
   type MetricKey,
   type R10Shot,
   type R10ShotMetrics,
   type Shot,
+  type StatMetricKey,
 } from '@/lib/format'
 
 type Tab = 'stats' | 'log' | 'view' | 'settings'
@@ -69,6 +76,7 @@ type SavedPreferences = {
   units?: 'imperial' | 'metric'
   teeDistance?: number
   theme?: ThemePreference
+  pinnedMetrics?: StatMetricKey[]
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -117,6 +125,16 @@ const initialShot: Shot = {
   spin: 0,
   carry: 0,
   total: 0,
+  launchDirection: 0,
+  spinAxis: 0,
+  backspin: 0,
+  sidespin: 0,
+  apex: 0,
+  timeOfFlight: 0,
+  offline: 0,
+  carryOffline: 0,
+  carryDeviationDeg: 0,
+  totalDeviationDeg: 0,
 }
 
 const previewShot: Shot = {
@@ -131,7 +149,21 @@ const previewShot: Shot = {
   spin: 2420,
   carry: 168.5,
   total: 174.2,
+  launchDirection: 0.8,
+  spinAxis: 2.1,
+  backspin: 2410,
+  sidespin: 90,
+  apex: 24.5,
+  timeOfFlight: 5.9,
+  offline: 3.2,
+  carryOffline: 2.5,
+  carryDeviationDeg: 0.9,
+  totalDeviationDeg: 1.1,
 }
+
+const defaultPinnedMetrics: StatMetricKey[] = ['clubSpeed', 'carry', 'total']
+
+const statMetricByKey = Object.fromEntries(statMetrics.map((m) => [m.key, m])) as Record<StatMetricKey, (typeof statMetrics)[number]>
 
 const showDevTools = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === '1'
 
@@ -152,6 +184,16 @@ function mockShot(id: number): Shot {
     spin: jittered(previewShot.spin, 400),
     carry: jittered(previewShot.carry, 10),
     total: jittered(previewShot.total, 10),
+    launchDirection: jittered(previewShot.launchDirection, 1),
+    spinAxis: jittered(previewShot.spinAxis, 2),
+    backspin: jittered(previewShot.backspin, 300),
+    sidespin: jittered(previewShot.sidespin, 60),
+    apex: jittered(previewShot.apex, 4),
+    timeOfFlight: jittered(previewShot.timeOfFlight, 0.4),
+    offline: jittered(previewShot.offline, 2),
+    carryOffline: jittered(previewShot.carryOffline, 1.5),
+    carryDeviationDeg: jittered(previewShot.carryDeviationDeg, 0.6),
+    totalDeviationDeg: jittered(previewShot.totalDeviationDeg, 0.8),
   }
 }
 
@@ -169,6 +211,8 @@ function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
   const [theme, setTheme] = useState<ThemePreference>('system')
+  const [pinnedMetrics, setPinnedMetrics] = useState<StatMetricKey[]>(defaultPinnedMetrics)
+  const [statsExpanded, setStatsExpanded] = useState(false)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
@@ -182,7 +226,7 @@ function App() {
   const readyTimerRef = useRef<number | null>(null)
   const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
-  const metricsByShotRef = useRef(new Map<number, Pick<R10ShotMetrics, 'carry_yards' | 'total_yards'>>())
+  const metricsByShotRef = useRef(new Map<number, R10ShotMetrics>())
   const selectedAddressRef = useRef('')
   const reconnectAttemptsRef = useRef(0)
   const reconnectingRef = useRef(false)
@@ -298,6 +342,7 @@ function App() {
         if (typeof saved.voiceEnabled === 'boolean') setVoiceEnabled(saved.voiceEnabled)
         if (saved.units) setUnits(saved.units)
         if (saved.theme) setTheme(saved.theme)
+        if (saved.pinnedMetrics?.length === 3) setPinnedMetrics(saved.pinnedMetrics)
         if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
       } finally {
         if (active) setSettingsLoaded(true)
@@ -308,10 +353,10 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
-    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme })
+    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, pinnedMetrics })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [enabledMetrics, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
+  }, [enabledMetrics, pinnedMetrics, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -346,7 +391,8 @@ function App() {
     void listen<R10Shot>('r10://shot', ({ payload }) => {
       const metrics = metricsByShotRef.current.get(payload.shot_id)
       metricsByShotRef.current.delete(payload.shot_id)
-      const nextShot: Shot = {
+      const nextShot: Shot = withMetrics({
+        ...initialShot,
         id: payload.shot_id,
         clubSpeed: (payload.club?.club_head_speed ?? 0) * 2.23694,
         path: payload.club?.path_angle ?? 0,
@@ -356,9 +402,11 @@ function App() {
         launch: payload.ball?.launch_angle ?? 0,
         ballSpeed: (payload.ball?.ball_speed ?? 0) * 2.23694,
         spin: payload.ball?.total_spin ?? 0,
-        carry: metrics?.carry_yards ?? 0,
-        total: metrics?.total_yards ?? 0,
-      }
+        launchDirection: payload.ball?.launch_direction ?? 0,
+        spinAxis: payload.ball?.spin_axis ?? 0,
+        backspin: payload.ball?.backspin ?? 0,
+        sidespin: payload.ball?.sidespin ?? 0,
+      }, metrics)
       setShot(nextShot)
       setHistory((current) => [nextShot, ...current])
     }).then((unlisten) => {
@@ -366,15 +414,15 @@ function App() {
       else unlisten()
     }).catch(() => undefined)
     void listen<R10ShotMetrics>('r10://shot-metrics', ({ payload }) => {
-      metricsByShotRef.current.set(payload.shot_id, { carry_yards: payload.carry_yards, total_yards: payload.total_yards })
+      metricsByShotRef.current.set(payload.shot_id, payload)
       setHistory((current) => current.map((item) =>
         item.id === payload.shot_id && item.carry === 0
-          ? { ...item, carry: payload.carry_yards, total: payload.total_yards }
+          ? withMetrics(item, payload)
           : item,
       ))
       setShot((current) =>
         current.id === payload.shot_id && current.carry === 0
-          ? { ...current, carry: payload.carry_yards, total: payload.total_yards }
+          ? withMetrics(current, payload)
           : current,
       )
     }).then((unlisten) => {
@@ -680,6 +728,11 @@ function App() {
 
   const [simulating, setSimulating] = useState(false)
 
+  const togglePin = (key: StatMetricKey) =>
+    setPinnedMetrics((current) =>
+      current.includes(key) ? current : [...current.slice(1), key],
+    )
+
   const simulateShot = async () => {
     if (simulating) return
     setSimulating(true)
@@ -697,8 +750,8 @@ function App() {
 
   return (
     <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)} className="h-dvh overflow-hidden bg-[radial-gradient(circle_at_85%_-10%,rgba(73,89,64,0.28),transparent_34rem)]">
-      <div className="mx-auto grid h-full w-full max-w-[1480px] grid-rows-[auto_minmax(0,1fr)_auto]">
-        <header className="flex items-center justify-between border-b border-border/80 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7">
+      <div className={cn('mx-auto grid h-full w-full max-w-[1480px]', statsExpanded ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]')}>
+        <header className={cn('flex items-center justify-between border-b border-border/80 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7', statsExpanded && 'hidden')}>
           <Brand />
           <div className="flex items-center gap-2">
             {showDevTools && (
@@ -713,25 +766,51 @@ function App() {
           </div>
         </header>
 
-        <main className="min-h-0 overflow-hidden p-4 sm:p-6 lg:p-8">
-          <div className="mx-auto h-full max-w-6xl">
+        <main className={cn('min-h-0 overflow-hidden', statsExpanded ? 'p-1 sm:p-2' : 'p-4 sm:p-6 lg:p-8')}>
+          <div className={cn('mx-auto h-full', statsExpanded ? 'max-w-none' : 'max-w-6xl')}>
             <TabsContent value="stats" className="h-full">
-              <Card className="sage-shadow relative flex h-full overflow-hidden border-primary/20 bg-[linear-gradient(145deg,var(--card),color-mix(in_srgb,var(--accent)_24%,var(--card)))]">
+              <Card className={cn('sage-shadow relative flex h-full overflow-hidden border-primary/20 bg-[linear-gradient(145deg,var(--card),color-mix(in_srgb,var(--accent)_24%,var(--card)))]', statsExpanded && 'border-0')}>
                 <div className="pointer-events-none absolute -right-20 -top-28 size-80 rounded-full border border-primary/10 bg-primary/5" />
                 <CardHeader className="relative flex-row items-center justify-between pb-1 sm:p-7">
-                  <div><p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">Latest shot</p><CardDescription className="mt-1">{hasShot ? 'Club head speed' : 'Waiting for your first shot'}</CardDescription></div>
-                  <Badge variant="outline" className="border-primary/30 font-mono text-primary">{hasShot ? `#${shot.id}` : '--'}</Badge>
+                  <div><p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">{statsExpanded ? 'Session shot' : 'Latest shot'}</p><CardDescription className="mt-1">{hasShot ? `${pinnedMetrics.length} pinned highlights` : 'Waiting for your first shot'}</CardDescription></div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline" className="border-primary/30 font-mono text-primary">{hasShot ? `#${shot.id}` : '--'}</Badge>
+                    <Button size="icon" variant="ghost" onClick={() => setStatsExpanded((value) => !value)} aria-label={statsExpanded ? 'Minimize stats' : 'Expand stats'} title={statsExpanded ? 'Minimize' : 'Full window'}>
+                      {statsExpanded ? <Minimize2 /> : <Maximize2 />}
+                    </Button>
+                  </div>
                 </CardHeader>
-                <CardContent className="relative flex min-h-0 flex-1 flex-col justify-center pb-5 sm:px-7 sm:pb-7">
-                  <div className="flex items-end gap-3"><strong className="font-serif text-[clamp(4.25rem,18vw,9rem)] font-normal leading-[0.75] tracking-[-0.08em]">{hasShot ? convertSpeed(shot.clubSpeed).toFixed(1) : '--'}</strong><span className="mb-1 font-mono text-sm uppercase text-primary">{speedUnit}</span></div>
-                  <Separator className="my-5 sm:my-8" />
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 lg:grid-cols-6">
-                    <Metric label="Path" value={hasShot ? `${shot.path.toFixed(1)}°` : '--'} tone="bg-chart-2" />
-                    <Metric label="Face" value={hasShot ? `${shot.face.toFixed(1)}°` : '--'} tone="bg-chart-3" />
-                    <Metric label="Attack" value={hasShot ? `${shot.attack.toFixed(1)}°` : '--'} tone="bg-chart-4" />
-                    <Metric label="Tempo" value={hasShot && shot.tempo ? formatTempo(shot.tempo) : '--'} tone="bg-chart-5" />
-                    <Metric label="Carry" value={hasShot ? formatDistance(shot.carry, units) : '--'} tone="bg-primary" />
-                    <Metric label="Total" value={hasShot ? formatDistance(shot.total, units) : '--'} tone="bg-chart-1" />
+                <CardContent className={cn('relative flex min-h-0 flex-1 flex-col', statsExpanded ? 'gap-4 px-4 pb-4 sm:px-6 sm:pb-6' : 'gap-5 px-4 pb-5 sm:px-7 sm:pb-7')}>
+                  <div className="grid shrink-0 grid-cols-3 gap-2 sm:gap-4">
+                    {pinnedMetrics.map((key) => {
+                      const metric = statMetricByKey[key]
+                      const value = hasShot ? metric.format(metric.value(shot), units) : '—'
+                      return (
+                        <div key={key} className="min-w-0 rounded-2xl border border-border/70 bg-background/25 p-3 sm:p-5">
+                          <p className="truncate font-mono text-[0.6rem] uppercase tracking-[0.14em] text-muted-foreground sm:text-[0.65rem]">{metric.label}</p>
+                          <p className={cn('mt-1 truncate font-serif font-normal leading-none tracking-[-0.04em]', statsExpanded ? 'text-[clamp(1.6rem,6vw,4rem)]' : 'text-[clamp(1.25rem,4.5vw,2.5rem)]')}>{value}</p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <Separator className="shrink-0" />
+                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                    {hasShot ? (
+                      <div className="grid grid-cols-2 gap-x-4 border-t border-border">
+                        {statMetrics.map((metric) => {
+                          const pinned = pinnedMetrics.includes(metric.key)
+                          return (
+                            <label key={metric.key} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 border-b border-border py-2.5">
+                              <span className="truncate text-xs font-medium sm:text-sm">{metric.label}</span>
+                              <span className="min-w-0 text-right font-mono text-xs tabular-nums sm:text-sm">{hasShot ? metric.format(metric.value(shot), units) : '--'}</span>
+                              <button type="button" onClick={() => togglePin(metric.key)} aria-label={`Pin ${metric.label}`} title={pinned ? 'Unpin' : 'Pin'}>
+                                <Pin className={cn('size-3.5', pinned ? 'text-primary' : 'text-muted-foreground hover:text-foreground')} />
+                              </button>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    ) : <EmptyState icon={Gauge} title="No shots yet" description="Shots recorded by your R10 will be listed here." compact />}
                   </div>
                 </CardContent>
               </Card>
@@ -825,7 +904,7 @@ function App() {
           </div>
         </main>
 
-        <nav className="border-t border-border bg-background/95 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur" aria-label="Primary navigation">
+        <nav className={cn('border-t border-border bg-background/95 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur', statsExpanded && 'hidden')} aria-label="Primary navigation">
           <TabsList className="mx-auto grid h-auto w-full max-w-xl grid-cols-4 bg-transparent p-0">{tabs.map(({ id, label, icon: Icon }) => <TabsTrigger key={id} value={id} className="flex-col gap-1 rounded-xl py-1.5 text-[0.65rem] data-[state=active]:bg-accent data-[state=active]:text-accent-foreground sm:flex-row sm:py-2 sm:text-xs"><Icon />{label}</TabsTrigger>)}</TabsList>
         </nav>
       </div>
@@ -912,15 +991,6 @@ function EmptyState({ icon: Icon, title, description, badge, compact = false }: 
       {badge && <Badge variant="outline" className="mb-3 border-primary/30 text-primary">{badge}</Badge>}
       <h2 className="font-serif text-2xl sm:text-3xl">{title}</h2>
       <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
-    </div>
-  )
-}
-
-function Metric({ label, value, tone }: { label: string; value: string; tone: string }) {
-  return (
-    <div className="rounded-2xl border border-border/70 bg-background/25 p-3 sm:p-4">
-      <div className="flex items-center gap-2 font-mono text-[0.62rem] uppercase tracking-[0.12em] text-muted-foreground"><span className={`size-1.5 rounded-full ${tone}`} />{label}</div>
-      <strong className="mt-3 block text-lg font-semibold tracking-tight">{value}</strong>
     </div>
   )
 }

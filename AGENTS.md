@@ -32,9 +32,12 @@
 ## User Interface
 
 - Preserve the bottom navigation order: Stats, Log, View, Settings.
-- Stats, View, and Settings should fit the iOS viewport without page scrolling.
+- View and Settings should fit the iOS viewport without page scrolling. Stats
+  keeps its three pinned highlight tiles fixed; the metric grid below may scroll
+  within its content panel.
 - Log may scroll within its content panel.
-- Do not introduce fake shots into Stats or Log. Empty sessions use empty states.
+- Do not introduce fake shots into Stats or Log except in dev-tools builds
+  (`import.meta.env.DEV` or `VITE_DEV_TOOLS=1`). Empty sessions use empty states.
 - The settings voice preview uses a hardcoded realistic reference shot and must
   never read from the live shot or session log.
 - Use existing shadcn source components and Sage Green theme tokens rather than

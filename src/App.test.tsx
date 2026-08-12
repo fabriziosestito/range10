@@ -12,7 +12,7 @@ describe('App', () => {
 
   it('shows placeholder stats before the first shot', () => {
     render(<App />)
-    expect(screen.getAllByText('--').length).toBeGreaterThan(2)
+    expect(screen.getAllByText('—').length).toBeGreaterThan(2)
     expect(screen.getByText('Waiting for your first shot')).toBeInTheDocument()
   })
 
