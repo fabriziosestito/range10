@@ -59,12 +59,15 @@ const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
 
+type ThemePreference = 'system' | 'light' | 'dark'
+
 type SavedPreferences = {
   preferredR10Address?: string
   enabledMetrics?: Record<MetricKey, boolean>
   voiceEnabled?: boolean
   units?: 'imperial' | 'metric'
   teeDistance?: number
+  theme?: ThemePreference
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -142,6 +145,7 @@ function App() {
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
+  const [theme, setTheme] = useState<ThemePreference>('system')
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
@@ -270,6 +274,7 @@ function App() {
         if (saved.enabledMetrics) setEnabledMetrics({ ...defaultEnabledMetrics, ...saved.enabledMetrics })
         if (typeof saved.voiceEnabled === 'boolean') setVoiceEnabled(saved.voiceEnabled)
         if (saved.units) setUnits(saved.units)
+        if (saved.theme) setTheme(saved.theme)
         if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
       } finally {
         if (active) setSettingsLoaded(true)
@@ -280,10 +285,26 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
-    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance })
+    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [enabledMetrics, preferredR10Address, settingsLoaded, teeDistance, units, voiceEnabled])
+  }, [enabledMetrics, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
+
+  useEffect(() => {
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
+      matches: false,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }
+    const applyTheme = () => {
+      const dark = theme === 'dark' || (theme === 'system' && media.matches)
+      document.documentElement.classList.toggle('dark', dark)
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#070503' : '#fdfdfd')
+    }
+    applyTheme()
+    media.addEventListener('change', applyTheme)
+    return () => media.removeEventListener('change', applyTheme)
+  }, [theme])
 
   useEffect(() => {
     const onShot = (event: Event) => {
@@ -679,7 +700,7 @@ function App() {
 
             <TabsContent value="settings" className="h-full">
               <Card className="flex h-full min-h-0 flex-col overflow-hidden">
-                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, tee distance, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
+                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, tee distance, theme, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
                 <Separator />
                 <CardContent className="min-h-0 flex-1 overflow-y-auto p-0">
                   <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
@@ -688,6 +709,11 @@ function App() {
                       <p className="mt-0.5 text-xs text-muted-foreground">How speeds are displayed and spoken.</p>
                     </div>
                     <ToggleGroup type="single" value={units} onValueChange={(value) => { if (value) setUnits(value as 'imperial' | 'metric') }} aria-label="Measurement units"><ToggleGroupItem value="imperial">US</ToggleGroupItem><ToggleGroupItem value="metric">Metric</ToggleGroupItem></ToggleGroup>
+                  </section>
+
+                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+                    <p className="text-sm font-semibold">Theme</p>
+                    <ToggleGroup type="single" value={theme} onValueChange={(value) => { if (value) setTheme(value as ThemePreference) }} aria-label="Theme"><ToggleGroupItem value="system">System</ToggleGroupItem><ToggleGroupItem value="light">Light</ToggleGroupItem><ToggleGroupItem value="dark">Dark</ToggleGroupItem></ToggleGroup>
                   </section>
 
                   <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
