@@ -22,6 +22,7 @@ import {
   Settings,
   SlidersHorizontal,
   Volume2,
+  Zap,
 } from 'lucide-react'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -130,6 +131,28 @@ const previewShot: Shot = {
   spin: 2420,
   carry: 168.5,
   total: 174.2,
+}
+
+const showDevTools = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === '1'
+
+function jittered(base: number, range: number) {
+  return base + (Math.random() - 0.5) * 2 * range
+}
+
+function mockShot(id: number): Shot {
+  return {
+    id,
+    clubSpeed: jittered(previewShot.clubSpeed, 3),
+    path: jittered(previewShot.path, 1.5),
+    face: jittered(previewShot.face, 1.5),
+    attack: jittered(previewShot.attack, 1.5),
+    tempo: 3,
+    launch: jittered(previewShot.launch, 3),
+    ballSpeed: jittered(previewShot.ballSpeed, 6),
+    spin: jittered(previewShot.spin, 400),
+    carry: jittered(previewShot.carry, 10),
+    total: jittered(previewShot.total, 10),
+  }
 }
 
 function App() {
@@ -344,6 +367,16 @@ function App() {
     }).catch(() => undefined)
     void listen<R10ShotMetrics>('r10://shot-metrics', ({ payload }) => {
       metricsByShotRef.current.set(payload.shot_id, { carry_yards: payload.carry_yards, total_yards: payload.total_yards })
+      setHistory((current) => current.map((item) =>
+        item.id === payload.shot_id && item.carry === 0
+          ? { ...item, carry: payload.carry_yards, total: payload.total_yards }
+          : item,
+      ))
+      setShot((current) =>
+        current.id === payload.shot_id && current.carry === 0
+          ? { ...current, carry: payload.carry_yards, total: payload.total_yards }
+          : current,
+      )
     }).then((unlisten) => {
       if (active) dispose = unlisten
       else unlisten()
@@ -645,15 +678,39 @@ function App() {
     await scanForR10()
   }
 
+  const [simulating, setSimulating] = useState(false)
+
+  const simulateShot = async () => {
+    if (simulating) return
+    setSimulating(true)
+    try {
+      if ((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__) {
+        await invoke('simulate_shot')
+      } else {
+        const nextId = history[0]?.id ?? previewShot.id
+        window.dispatchEvent(new CustomEvent('range:shot', { detail: mockShot(nextId + 1) }))
+      }
+    } finally {
+      setSimulating(false)
+    }
+  }
+
   return (
     <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)} className="h-dvh overflow-hidden bg-[radial-gradient(circle_at_85%_-10%,rgba(73,89,64,0.28),transparent_34rem)]">
       <div className="mx-auto grid h-full w-full max-w-[1480px] grid-rows-[auto_minmax(0,1fr)_auto]">
         <header className="flex items-center justify-between border-b border-border/80 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7">
           <Brand />
-          <Button size="sm" variant={connected ? 'outline' : 'secondary'} onClick={() => { if (connected) void disconnectFromR10(); else void scanForR10() }} disabled={connectionOpen || cleaningUp || connectionBusy}>
-            {connectionBusy ? <LoaderCircle className="animate-spin" /> : connected ? <BluetoothConnected /> : <Bluetooth />}
-            {connected ? 'Disconnect' : connectionBusy ? 'Connecting' : 'Connect R10'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {showDevTools && (
+              <Button size="sm" variant="ghost" onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" title="Simulate R10 shot">
+                {simulating ? <LoaderCircle className="animate-spin" /> : <Zap />}
+              </Button>
+            )}
+            <Button size="sm" variant={connected ? 'outline' : 'secondary'} onClick={() => { if (connected) void disconnectFromR10(); else void scanForR10() }} disabled={connectionOpen || cleaningUp || connectionBusy}>
+              {connectionBusy ? <LoaderCircle className="animate-spin" /> : connected ? <BluetoothConnected /> : <Bluetooth />}
+              {connected ? 'Disconnect' : connectionBusy ? 'Connecting' : 'Connect R10'}
+            </Button>
+          </div>
         </header>
 
         <main className="min-h-0 overflow-hidden p-4 sm:p-6 lg:p-8">

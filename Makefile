@@ -6,7 +6,7 @@ INSTALL_PATH := /Applications/$(APP_NAME).app
 IOS_IPA := src-tauri/gen/apple/build/arm64/range10.ipa
 IOS_EXTRACT := /tmp/range10-ios-sideload
 
-.PHONY: deps lint check test format clean help macos-dev macos-build macos-install macos-run ios-dev ios-build ios-install ios-run ios-list
+.PHONY: deps lint check test format clean help macos-dev macos-build macos-install macos-build-debug macos-install-debug macos-run ios-dev ios-build ios-install ios-build-debug ios-install-debug ios-run ios-list
 
 ## Shared targets.
 
@@ -56,6 +56,18 @@ macos-install: macos-build
 	@open "$(INSTALL_PATH)"
 	@printf 'Installed %s\n' "$(INSTALL_PATH)"
 
+# Debug .app bundle with dev tools (simulate shot button).
+macos-build-debug: node_modules/.package-lock.json
+	VITE_DEV_TOOLS=1 $(MAKE) macos-build
+
+# Build, install into /Applications, and open with dev tools enabled.
+macos-install-debug: macos-build-debug
+	@osascript -e 'tell application "$(APP_NAME)" to quit' 2>/dev/null || true
+	@rm -rf "$(INSTALL_PATH)"
+	@ditto "$(APP_BUNDLE)" "$(INSTALL_PATH)"
+	@open "$(INSTALL_PATH)"
+	@printf 'Installed %s\n' "$(INSTALL_PATH)"
+
 # Open an existing release bundle without rebuilding or reinstalling it.
 macos-run:
 	@test -d "$(APP_BUNDLE)" || (printf 'App bundle not found. Run make macos-build first.\n' && exit 1)
@@ -70,9 +82,21 @@ ios-dev:
 ios-build: node_modules/.package-lock.json
 	npx tauri ios build --ci --export-method debugging
 
+# Debugging IPA with dev tools (simulate shot button).
+ios-build-debug: node_modules/.package-lock.json
+	VITE_DEV_TOOLS=1 npx tauri ios build --ci --export-method debugging
+
 # Debugging IPA sideloaded onto a connected device.
 # Usage: make ios-install DEVICE="Your iPhone name or UDID"
 ios-install: ios-build
+	rm -rf "$(IOS_EXTRACT)"
+	mkdir -p "$(IOS_EXTRACT)"
+	unzip -q "$(IOS_IPA)" -d "$(IOS_EXTRACT)"
+	if [[ -n "$(DEVICE)" ]]; then ios-deploy --id "$(DEVICE)" --bundle "$(IOS_EXTRACT)/Payload/range10.app"; else ios-deploy --bundle "$(IOS_EXTRACT)/Payload/range10.app"; fi
+
+# Debugging IPA with dev tools sideloaded onto a connected device.
+# Usage: make ios-install-debug DEVICE="Your iPhone name or UDID"
+ios-install-debug: ios-build-debug
 	rm -rf "$(IOS_EXTRACT)"
 	mkdir -p "$(IOS_EXTRACT)"
 	unzip -q "$(IOS_IPA)" -d "$(IOS_EXTRACT)"
@@ -99,14 +123,18 @@ help:
 	@echo '  make clean       Remove frontend and Rust build output'
 	@echo ''
 	@echo 'macOS:'
-	@echo '  make macos-dev      Tauri desktop dev loop'
-	@echo '  make macos-build    Release .app bundle'
-	@echo '  make macos-install  Build, install into /Applications, and open'
-	@echo '  make macos-run      Open existing bundle without rebuilding'
+	@echo '  make macos-dev          Tauri desktop dev loop'
+	@echo '  make macos-build        Release .app bundle'
+	@echo '  make macos-install      Build, install into /Applications, and open'
+	@echo '  make macos-build-debug  .app bundle with dev tools (simulate shot)'
+	@echo '  make macos-install-debug Install debug bundle into /Applications'
+	@echo '  make macos-run          Open existing bundle without rebuilding'
 	@echo ''
 	@echo 'iOS:'
-	@echo '  make ios-dev        Tauri iOS dev loop'
-	@echo '  make ios-build      Debugging IPA'
-	@echo '  make ios-install    Build and sideload IPA to a device'
-	@echo '  make ios-run DEVICE=...    Release run on a device'
-	@echo '  make ios-list       List connected devices'
+	@echo '  make ios-dev            Tauri iOS dev loop'
+	@echo '  make ios-build          Debugging IPA'
+	@echo '  make ios-install        Build and sideload IPA to a device'
+	@echo '  make ios-build-debug    Debugging IPA with dev tools (simulate shot)'
+	@echo '  make ios-install-debug  Build and sideload debug IPA to a device'
+	@echo '  make ios-run DEVICE=... Release run on a device'
+	@echo '  make ios-list           List connected devices'

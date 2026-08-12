@@ -1,4 +1,5 @@
 use std::io;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::sync::Mutex;
 use std::thread;
@@ -7,7 +8,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_blec::models::WriteType;
 use tauri_plugin_blec::{get_handler, OnDisconnectHandler};
-use tenover::proto::ShotConfig;
+use tenover::proto::{BallData, ClubData, ShotConfig, ShotData, ShotType, SpinCalcType, SwingData};
 use tenover::{Client, Event, Transport};
 use uuid::{uuid, Uuid};
 
@@ -72,6 +73,80 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
             None
         }
     }
+}
+
+// Shared handling for a captured shot: emits metrics (before the shot event
+// so the frontend lookup succeeds) and speaks the result. Sessions pass their
+// voice channel; standalone simulation passes None and speaks on its own
+// thread instead.
+fn handle_shot(app: &AppHandle, shot: &ShotData, voice_tx: Option<&Sender<String>>) {
+    if let Some(metrics) = compute_shot_metrics(shot) {
+        let _ = app.emit("r10://shot-metrics", &metrics);
+    }
+    let _ = app.emit("r10://shot", shot);
+    if let Ok(config) = app.state::<VoiceState>().config.lock() {
+        if config.voice_enabled {
+            let text = spoken_shot(shot, &config);
+            match voice_tx {
+                Some(tx) => {
+                    let _ = tx.send(text);
+                }
+                None => {
+                    let voice_app = app.clone();
+                    let _ = thread::Builder::new()
+                        .name("r10-voice".into())
+                        .spawn(move || speak(&voice_app, text));
+                }
+            }
+        }
+    }
+}
+
+static SIMULATED_SHOT_ID: AtomicU32 = AtomicU32::new(9000);
+
+fn jittered(seed: u32, amount: f32) -> f32 {
+    const MASK: u32 = 0x7fff_ffff;
+    let x = (seed.wrapping_mul(1_103_515_245).wrapping_add(12_345) & MASK) as f32 / MASK as f32;
+    (x - 0.5) * 2.0 * amount
+}
+
+// Developer tool: fabricates a realistic R10 shot and runs it through the same
+// path as a real capture (metrics, events, voice). Only reachable from
+// dev-tools frontend builds.
+#[tauri::command]
+fn simulate_shot(app: AppHandle) -> Result<(), String> {
+    let n = SIMULATED_SHOT_ID.fetch_add(1, Ordering::Relaxed);
+    let total_spin = 2420.0 + jittered(n.wrapping_mul(13), 300.0);
+    let launch_direction = jittered(n.wrapping_mul(7), 1.0);
+    let shot = ShotData {
+        shot_id: n,
+        shot_type: ShotType::Normal,
+        ball: Some(BallData {
+            launch_angle: 16.5 + jittered(n.wrapping_mul(3), 2.5),
+            launch_direction,
+            ball_speed: 64.7 + jittered(n.wrapping_mul(11), 3.0),
+            spin_axis: 0.0,
+            total_spin,
+            backspin: total_spin,
+            sidespin: 0.0,
+            spin_calc_type: SpinCalcType::Measured,
+        }),
+        club: Some(ClubData {
+            club_head_speed: 44.0 + jittered(n.wrapping_mul(17), 1.0),
+            face_angle: 0.4 + jittered(n.wrapping_mul(19), 1.2),
+            path_angle: 1.2 + jittered(n.wrapping_mul(23), 1.2),
+            attack_angle: -3.1 + jittered(n.wrapping_mul(29), 1.2),
+        }),
+        swing: Some(SwingData {
+            backswing_start: 0,
+            downswing_start: 700,
+            impact: 1000,
+            follow_through_end: 1400,
+        }),
+    };
+    log::info!("[simulate] R10 shot {}", shot.shot_id);
+    handle_shot(&app, &shot, None);
+    Ok(())
 }
 
 struct SessionState {
@@ -315,15 +390,7 @@ async fn start_r10(
                     }
                     Ok(Some(Event::Shot(shot))) => {
                         log::info!("[{session_id}] R10 shot {}", shot.shot_id);
-                        let _ = app.emit("r10://shot", &shot);
-                        if let Some(metrics) = compute_shot_metrics(&shot) {
-                            let _ = app.emit("r10://shot-metrics", &metrics);
-                        }
-                        if let Ok(config) = app.state::<VoiceState>().config.lock() {
-                            if config.voice_enabled {
-                                let _ = voice_tx.send(spoken_shot(&shot, &config));
-                            }
-                        }
+                        handle_shot(&app, &shot, Some(&voice_tx));
                     }
                     Ok(Some(Event::WakeUpResponse { .. })) => {
                         log::info!("[{session_id}] R10 woke up");
@@ -486,6 +553,7 @@ pub fn run() {
             stop_r10,
             set_voice_config,
             set_tee_distance,
+            simulate_shot,
             connection_info,
             read_app_log
         ])
