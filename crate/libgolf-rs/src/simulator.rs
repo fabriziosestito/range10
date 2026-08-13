@@ -404,7 +404,7 @@ pub struct ShotResult {
     /// Lateral displacement at the final resting point (positive = right),
     /// in yards.
     pub offline_yards: f32,
-    /// Total flight time in seconds.
+    /// Airborne time (impact to first ground contact), in seconds.
     pub time_of_flight: f32,
     /// Bearing of the final resting point from the launch origin, in degrees.
     pub bearing_deg: f32,
@@ -459,7 +459,7 @@ pub fn run_shot(
         total_yards: landing.y_yards,
         apex_yards: apex_ft.max(0.0) / constants::YARDS_TO_FEET,
         offline_yards: landing.x_yards,
-        time_of_flight: landing.time_of_flight,
+        time_of_flight: trajectory[carry_idx].current_time,
         bearing_deg: landing.bearing_deg,
     })
 }
@@ -499,7 +499,11 @@ mod tests {
         assert!((result.total_yards - 264.73).abs() < 0.05);
         assert!((result.apex_yards - 31.88).abs() < 0.05);
         assert!((result.offline_yards - 0.00).abs() < 0.05);
-        assert!((result.time_of_flight - 9.010).abs() < 0.01);
+        assert!(
+            (result.time_of_flight - 6.600).abs() < 0.01,
+            "actual time_of_flight {}",
+            result.time_of_flight
+        );
     }
 
     #[test]
