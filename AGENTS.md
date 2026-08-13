@@ -31,12 +31,12 @@
 
 ## User Interface
 
-- Preserve the bottom navigation order: Stats, Log, View, Settings.
-- View and Settings should fit the iOS viewport without page scrolling. Stats
+- Preserve the bottom navigation order: Data, Session, View, Settings.
+- View and Settings should fit the iOS viewport without page scrolling. Data
   keeps its three pinned highlight tiles fixed; the metric grid below may scroll
   within its content panel.
-- Log may scroll within its content panel.
-- Do not introduce fake shots into Stats or Log except in dev-tools builds
+- Session may scroll within its content panel.
+- Do not introduce fake shots into Data or Session except in dev-tools builds
   (`import.meta.env.DEV` or `VITE_DEV_TOOLS=1`). Empty sessions use empty states.
 - The settings voice preview uses a hardcoded realistic reference shot and must
   never read from the live shot or session log.

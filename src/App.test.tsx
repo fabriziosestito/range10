@@ -7,7 +7,7 @@ describe('App', () => {
   it('renders the navigation tabs in order', () => {
     render(<App />)
     const tabs = screen.getAllByRole('tab').map((tab) => tab.textContent?.trim())
-    expect(tabs).toEqual(['Stats', 'Log', 'View', 'Settings'])
+    expect(tabs).toEqual(['Data', 'Session', 'View', 'Settings'])
   })
 
   it('shows placeholder stats before the first shot', () => {

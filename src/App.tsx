@@ -62,8 +62,8 @@ import {
 type Tab = 'stats' | 'log' | 'view' | 'settings'
 
 const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: 'stats', label: 'Stats', icon: Gauge },
-  { id: 'log', label: 'Log', icon: List },
+  { id: 'stats', label: 'Data', icon: Gauge },
+  { id: 'log', label: 'Session', icon: List },
   { id: 'view', label: 'View', icon: Box },
   { id: 'settings', label: 'Settings', icon: Settings },
 ]
