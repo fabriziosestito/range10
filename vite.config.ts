@@ -15,5 +15,11 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    server: {
+      deps: {
+        // tabster/keyborg ship CJS that breaks vitest's ESM interop unless inlined.
+        inline: ['tabster', 'keyborg', /@fluentui\//],
+      },
+    },
   },
 })

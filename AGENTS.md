@@ -31,17 +31,23 @@
 
 ## User Interface
 
-- Preserve the bottom navigation order: Data, Session, View, Settings.
-- View and Settings should fit the iOS viewport without page scrolling. Data
-  keeps its three pinned highlight tiles fixed; the metric grid below may scroll
-  within its content panel.
-- Session may scroll within its content panel.
+- The UI is built on Fluent UI React v9 (`@fluentui/react-components`) with a
+  custom sage-green brand ramp in `src/theme.ts`. Tailwind is used only for
+  layout utilities; visual tokens come from Fluent CSS variables.
+- The shell is a slim top bar (brand, connect button, settings gear), a swipeable
+  content area, and a slim bottom tab bar with the pages: Data, Session, View.
+- Settings opens as a Fluent Drawer from the top bar
+  (`src/components/SettingsDrawer.tsx`), not as a page.
+- Data is a dense square metric tile grid (`src/components/MetricGrid.tsx`).
+  Tile order (`metricOrder`) and visibility (`hiddenMetrics`) are user
+  preferences; edit mode enables dnd-kit drag reordering and hide toggles.
+  Legacy `pinnedMetrics` preferences migrate to the front of `metricOrder`.
+- Data and Session scroll within their content panels; the shell must fit the
+  iOS viewport without page scrolling.
 - Do not introduce fake shots into Data or Session except in dev-tools builds
   (`import.meta.env.DEV` or `VITE_DEV_TOOLS=1`). Empty sessions use empty states.
 - The settings voice preview uses a hardcoded realistic reference shot and must
   never read from the live shot or session log.
-- Use existing shadcn source components and Sage Green theme tokens rather than
-  adding an unrelated visual system.
 
 ## Native and Signing Safety
 

@@ -5,27 +5,25 @@ are recorded in `package-lock.json` and `Cargo.lock`.
 
 ## Fonts
 
-- Plus Jakarta Sans: Copyright 2020 The Plus Jakarta Sans Project Authors.
-- Lora: Copyright 2011 The Lora Project Authors. "Lora" is a Reserved Font Name.
-- IBM Plex Mono: Copyright 2017 IBM Corp. All rights reserved.
-
-The fonts are licensed under the
-[SIL Open Font License 1.1](third-party/licenses/OFL-1.1.txt).
+No third-party font files are bundled. The UI uses the platform system fonts
+(Segoe UI on Windows, SF Pro via `-apple-system` on Apple platforms) and the
+system monospace stack.
 
 ## Icons
 
-- Lucide Icons: Copyright (c) 2026 Lucide Icons and Contributors,
-  licensed under [ISC](third-party/licenses/ISC.txt).
-- Feather-derived Lucide icons: Copyright (c) 2013-present Cole Bemis,
-  licensed under [MIT](third-party/licenses/MIT.txt).
+- Fluent UI System Icons (`@fluentui/react-icons`): Copyright (c) 2020
+  Microsoft Corporation, licensed under [MIT](third-party/licenses/MIT.txt).
 
 ## Software
 
 - React: Copyright (c) Meta Platforms, Inc. and affiliates.
-- Radix UI: Copyright (c) 2022 WorkOS.
+- Fluent UI React v9 (`@fluentui/react-components`, including Griffel, tabster,
+  and keyborg): Copyright (c) Microsoft Corporation, licensed under
+  [MIT](third-party/licenses/MIT.txt).
+- dnd kit (`@dnd-kit/*`): Copyright (c) 2021 Claudéric Demers, licensed under
+  [MIT](third-party/licenses/MIT.txt).
 - Tauri: Copyright (c) 2017-present Tauri Apps Contributors.
 - clsx: Copyright (c) Luke Edwards.
-- tailwind-merge: Copyright (c) 2021 Dany Castillo.
 - tauri-plugin-tts: Copyright (c) 2025 Affex Team.
 - tenover: Copyright (c) 2026 Eric Thill.
 - libgolf (flight model): Copyright (c) gdifiore, licensed under
@@ -33,11 +31,11 @@ The fonts are licensed under the
   `crate/libgolf-rs/` (LICENSE and attribution in `crate/libgolf-rs/src/lib.rs`);
   the in-air physics is based on Prof. Alan M. Nathan's trajectory model
   (University of Illinois).
-- class-variance-authority: Copyright 2022 Joe Bell.
 
 These packages and their transitive dependencies retain their respective
 permissive licenses. Common license texts are available under
-`third-party/licenses/`, including [MIT](third-party/licenses/MIT.txt) and
+`third-party/licenses/`, including [MIT](third-party/licenses/MIT.txt),
+[ISC](third-party/licenses/ISC.txt), and
 [Apache-2.0](third-party/licenses/Apache-2.0.txt). Complete package-specific
 license metadata and notices remain available from each upstream source
 package.

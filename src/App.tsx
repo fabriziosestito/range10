@@ -4,51 +4,30 @@ import { listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { checkPermissions, connect as connectBle, disconnect as disconnectBle, startScan, stopScan, type BleDevice } from '@mnlphlp/plugin-blec'
 import { isSpeaking, speak, stop } from 'tauri-plugin-tts-api'
+import { Badge, Button, FluentProvider, Spinner, Tab, TabList, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, ToggleButton, Tooltip } from '@fluentui/react-components'
 import {
-  Activity,
-  ArrowRight,
-  Bluetooth,
-  BluetoothConnected,
-  Box,
-  CircleAlert,
-  Gauge,
-  List,
-  LoaderCircle,
-  Maximize2,
-  Minus,
-  Minimize2,
-  Pause,
-  Pin,
-  Play,
-  Plus,
-  Radio,
-  Settings,
-  SlidersHorizontal,
-  Volume2,
-  Zap,
-} from 'lucide-react'
+  ArrowMaximizeRegular,
+  ArrowMinimizeRegular,
+  BluetoothRegular,
+  BoxRegular,
+  DataUsageRegular,
+  EditRegular,
+  FlashRegular,
+  ListRegular,
+  SettingsRegular,
+} from '@fluentui/react-icons'
 
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { ConnectDialog } from '@/components/ConnectDialog'
+import { MetricGrid } from '@/components/MetricGrid'
+import { SettingsDrawer, type ThemePreference } from '@/components/SettingsDrawer'
+import { darkTheme, lightTheme, themeColors } from '@/theme'
 import { cn } from '@/lib/utils'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Separator } from '@/components/ui/separator'
-import { Switch } from '@/components/ui/switch'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   calculateTempo,
-  connectionTitle,
-  displayDeviceName,
   errorMessage,
   formatDistance,
   formatMetric,
-  formatTeeDistance,
   formatTempo,
-  highlightParts,
   statMetrics,
   withMetrics,
   type ConnectionPhase,
@@ -59,16 +38,11 @@ import {
   type StatMetricKey,
 } from '@/lib/format'
 
-type Tab = 'stats' | 'log' | 'view' | 'settings'
-
-const tabs: { id: Tab; label: string; icon: typeof Activity }[] = [
-  { id: 'stats', label: 'Data', icon: Gauge },
-  { id: 'log', label: 'Session', icon: List },
-  { id: 'view', label: 'View', icon: Box },
-  { id: 'settings', label: 'Settings', icon: Settings },
-]
-
-type ThemePreference = 'system' | 'light' | 'dark'
+const pages = [
+  { id: 'data', label: 'Data' },
+  { id: 'session', label: 'Session' },
+  { id: 'view', label: 'View' },
+] as const
 
 type SavedPreferences = {
   preferredR10Address?: string
@@ -78,6 +52,8 @@ type SavedPreferences = {
   teeDistance?: number
   theme?: ThemePreference
   pinnedMetrics?: StatMetricKey[]
+  metricOrder?: StatMetricKey[]
+  hiddenMetrics?: StatMetricKey[]
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -162,9 +138,12 @@ const previewShot: Shot = {
   totalDeviationDeg: 1.1,
 }
 
-const defaultPinnedMetrics: StatMetricKey[] = ['clubSpeed', 'carry', 'total']
+const defaultMetricOrder: StatMetricKey[] = statMetrics.map((metric) => metric.key)
 
-const statMetricByKey = Object.fromEntries(statMetrics.map((m) => [m.key, m])) as Record<StatMetricKey, (typeof statMetrics)[number]>
+function normalizeMetricOrder(saved: StatMetricKey[] | undefined, pinned?: StatMetricKey[]): StatMetricKey[] {
+  const valid = (saved?.length ? saved : pinned ?? []).filter((key) => defaultMetricOrder.includes(key))
+  return [...valid, ...defaultMetricOrder.filter((key) => !valid.includes(key))]
+}
 
 const showDevTools = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === '1'
 
@@ -212,13 +191,17 @@ function App() {
   const [voiceEnabled, setVoiceEnabled] = useState(true)
   const [units, setUnits] = useState<'imperial' | 'metric'>('imperial')
   const [theme, setTheme] = useState<ThemePreference>('system')
-  const [pinnedMetrics, setPinnedMetrics] = useState<StatMetricKey[]>(defaultPinnedMetrics)
+  const [isDark, setIsDark] = useState(false)
+  const [metricOrder, setMetricOrder] = useState<StatMetricKey[]>(defaultMetricOrder)
+  const [hiddenMetrics, setHiddenMetrics] = useState<StatMetricKey[]>([])
+  const [editMode, setEditMode] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
   const [enabledMetrics, setEnabledMetrics] = useState<Record<MetricKey, boolean>>(defaultEnabledMetrics)
-  const [activeTab, setActiveTab] = useState<Tab>('stats')
   const [previewSpeaking, setPreviewSpeaking] = useState(false)
   const [copyingLogs, setCopyingLogs] = useState(false)
   const [logCopyState, setLogCopyState] = useState('')
@@ -343,7 +326,8 @@ function App() {
         if (typeof saved.voiceEnabled === 'boolean') setVoiceEnabled(saved.voiceEnabled)
         if (saved.units) setUnits(saved.units)
         if (saved.theme) setTheme(saved.theme)
-        if (saved.pinnedMetrics?.length === 3) setPinnedMetrics(saved.pinnedMetrics)
+        if (saved.metricOrder?.length || saved.pinnedMetrics?.length) setMetricOrder(normalizeMetricOrder(saved.metricOrder, saved.pinnedMetrics))
+        if (saved.hiddenMetrics) setHiddenMetrics(saved.hiddenMetrics.filter((key) => defaultMetricOrder.includes(key)))
         if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
       } finally {
         if (active) setSettingsLoaded(true)
@@ -354,10 +338,10 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
-    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, pinnedMetrics })
+    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [enabledMetrics, pinnedMetrics, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
+  }, [enabledMetrics, hiddenMetrics, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -367,8 +351,9 @@ function App() {
     }
     const applyTheme = () => {
       const dark = theme === 'dark' || (theme === 'system' && media.matches)
+      setIsDark(dark)
       document.documentElement.classList.toggle('dark', dark)
-      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? '#070503' : '#fdfdfd')
+      document.querySelector('meta[name="theme-color"]')?.setAttribute('content', dark ? themeColors.darkBackground : themeColors.lightBackground)
     }
     applyTheme()
     media.addEventListener('change', applyTheme)
@@ -525,7 +510,6 @@ function App() {
 
   const speedUnit = units === 'imperial' ? 'mph' : 'km/h'
   const convertSpeed = (value: number) => units === 'imperial' ? value : value * 1.60934
-  const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
   const hasShot = shot.id > 0
 
   const speechPreview = useMemo(() => {
@@ -728,11 +712,27 @@ function App() {
   }
 
   const [simulating, setSimulating] = useState(false)
+  const touchStartXRef = useRef<number | null>(null)
 
-  const togglePin = (key: StatMetricKey) =>
-    setPinnedMetrics((current) =>
-      current.includes(key) ? current : [...current.slice(1), key],
-    )
+  const toggleHiddenMetric = (key: StatMetricKey) =>
+    setHiddenMetrics((current) => (current.includes(key) ? current.filter((item) => item !== key) : [...current, key]))
+
+  const changePage = (delta: number) => {
+    setEditMode(false)
+    setPageIndex((current) => Math.min(pages.length - 1, Math.max(0, current + delta)))
+  }
+
+  const onTouchStart = (event: React.TouchEvent) => {
+    touchStartXRef.current = editMode ? null : event.touches[0]?.clientX ?? null
+  }
+
+  const onTouchEnd = (event: React.TouchEvent) => {
+    const startX = touchStartXRef.current
+    touchStartXRef.current = null
+    if (startX === null || editMode) return
+    const delta = (event.changedTouches[0]?.clientX ?? startX) - startX
+    if (Math.abs(delta) > 64) changePage(delta < 0 ? 1 : -1)
+  }
 
   const simulateShot = async () => {
     if (simulating) return
@@ -749,224 +749,161 @@ function App() {
     }
   }
 
+  const page = pages[pageIndex]
+
   return (
-    <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as Tab)} className="h-dvh overflow-hidden bg-[radial-gradient(circle_at_85%_-10%,rgba(73,89,64,0.28),transparent_34rem)]">
+    <FluentProvider theme={isDark ? darkTheme : lightTheme} className="h-dvh overflow-hidden bg-[var(--colorNeutralBackground1)] text-[var(--colorNeutralForeground1)]">
       <div className={cn('mx-auto grid h-full w-full max-w-[1480px]', statsExpanded ? 'grid-rows-[minmax(0,1fr)]' : 'grid-rows-[auto_minmax(0,1fr)_auto]')}>
-        <header className={cn('flex items-center justify-between border-b border-border/80 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-7', statsExpanded && 'hidden')}>
-          <Brand />
-          <div className="flex items-center gap-2">
+        <header className={cn('flex items-center justify-between gap-2 border-b border-[var(--colorNeutralStroke2)] px-2 pb-1.5 pt-[max(0.4rem,env(safe-area-inset-top))]', statsExpanded && 'hidden')}>
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--colorBrandBackground)] text-xs font-semibold text-[var(--colorNeutralForegroundOnBrand)]">10</div>
+            <p className="truncate text-sm font-bold tracking-tight">range10</p>
+          </div>
+          <div className="flex items-center gap-1">
             {showDevTools && (
-              <Button size="sm" variant="ghost" onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" title="Simulate R10 shot">
-                {simulating ? <LoaderCircle className="animate-spin" /> : <Zap />}
-              </Button>
+              <Tooltip content="Simulate R10 shot" relationship="label">
+                <Button size="small" appearance="subtle" icon={simulating ? <Spinner size="extra-tiny" /> : <FlashRegular />} onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" />
+              </Tooltip>
             )}
-            <Button size="sm" variant={connected ? 'outline' : 'secondary'} onClick={() => { if (connected) void disconnectFromR10(); else void scanForR10() }} disabled={connectionOpen || cleaningUp || connectionBusy}>
-              {connectionBusy ? <LoaderCircle className="animate-spin" /> : connected ? <BluetoothConnected /> : <Bluetooth />}
-              {connected ? 'Disconnect' : connectionBusy ? 'Connecting' : 'Connect R10'}
+            <Button
+              size="small"
+              appearance={connected ? 'secondary' : 'primary'}
+              icon={connectionBusy ? <Spinner size="extra-tiny" /> : <BluetoothRegular />}
+              onClick={() => { if (connected) void disconnectFromR10(); else void scanForR10() }}
+              disabled={connectionOpen || cleaningUp || connectionBusy}
+            >
+              {connected ? 'Connected' : connectionBusy ? 'Connecting' : 'Connect'}
             </Button>
+            <Button size="small" appearance="subtle" icon={<SettingsRegular />} onClick={() => setSettingsOpen(true)} aria-label="Open settings" />
           </div>
         </header>
 
-        <main className={cn('min-h-0 overflow-hidden', statsExpanded ? 'p-1 sm:p-2' : 'p-4 sm:p-6 lg:p-8')}>
-          <div className={cn('mx-auto h-full', statsExpanded ? 'max-w-none' : 'max-w-6xl')}>
-            <TabsContent value="stats" className="h-full">
-              <Card className={cn('sage-shadow relative flex h-full overflow-hidden border-primary/20 bg-[linear-gradient(145deg,var(--card),color-mix(in_srgb,var(--accent)_24%,var(--card)))]', statsExpanded && 'border-0')}>
-                <div className="pointer-events-none absolute -right-20 -top-28 size-80 rounded-full border border-primary/10 bg-primary/5" />
-                <CardHeader className="relative flex-row items-center justify-between pb-1 sm:p-7">
-                  <div><p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">{statsExpanded ? 'Session shot' : 'Latest shot'}</p><CardDescription className="mt-1">{hasShot ? `${pinnedMetrics.length} pinned highlights` : 'Waiting for your first shot'}</CardDescription></div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="border-primary/30 font-mono text-primary">{hasShot ? `#${shot.id}` : '--'}</Badge>
-                    <Button size="icon" variant="ghost" onClick={() => setStatsExpanded((value) => !value)} aria-label={statsExpanded ? 'Minimize stats' : 'Expand stats'} title={statsExpanded ? 'Minimize' : 'Full window'}>
-                      {statsExpanded ? <Minimize2 /> : <Maximize2 />}
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className={cn('relative flex min-h-0 flex-1 flex-col', statsExpanded ? 'gap-4 px-4 pb-4 sm:px-6 sm:pb-6' : 'gap-5 px-4 pb-5 sm:px-7 sm:pb-7')}>
-                  <div className="grid shrink-0 grid-cols-3 gap-1.5 sm:gap-4">
-                    {pinnedMetrics.map((key) => {
-                      const metric = statMetricByKey[key]
-                      const parts = hasShot ? highlightParts(metric, shot, units) : { value: '—' }
-                      return (
-                        <div key={key} className="min-w-0 rounded-2xl border border-border/70 bg-background/25 p-2.5 sm:p-5">
-                          <p className="truncate font-mono text-[0.68rem] uppercase tracking-[0.08em] text-muted-foreground leading-relaxed" title={metric.label}>{metric.label}</p>
-                          <div className="mt-1 flex min-w-0 items-baseline gap-1">
-                            <span className={cn('min-w-0 truncate font-serif font-normal leading-none tracking-[-0.04em]', statsExpanded ? 'text-[clamp(1.6rem,6vw,4rem)]' : 'text-[clamp(1.2rem,4.2vw,2.5rem)]')}>{parts.value}</span>
-                            {parts.unit != null && <span className="shrink-0 font-mono text-[0.7rem] text-muted-foreground sm:text-xs">{parts.unit}</span>}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <Separator className="shrink-0" />
-                  <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                    {hasShot ? (
-                      <div className="grid grid-cols-2 gap-x-4 border-t border-border">
-                        {statMetrics.map((metric) => {
-                          const pinned = pinnedMetrics.includes(metric.key)
-                          return (
-                            <label key={metric.key} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 border-b border-border py-2.5">
-                              <span className="truncate text-xs font-medium sm:text-sm">{metric.label}</span>
-                              <span className="min-w-0 text-right font-mono text-xs tabular-nums sm:text-sm">{hasShot ? metric.format(metric.value(shot), units) : '--'}</span>
-                              <button type="button" onClick={() => togglePin(metric.key)} aria-label={`Pin ${metric.label}`} title={pinned ? 'Unpin' : 'Pin'}>
-                                <Pin className={cn('size-3.5', pinned ? 'text-primary' : 'text-muted-foreground hover:text-foreground')} />
-                              </button>
-                            </label>
-                          )
-                        })}
-                      </div>
-                    ) : <EmptyState icon={Gauge} title="No shots yet" description="Shots recorded by your R10 will be listed here." compact />}
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="log" className="h-full">
-              <Card className="flex h-full min-h-0 flex-col overflow-hidden">
-                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="text-lg">Shot log</CardTitle><CardDescription className="mt-1">{history.length ? `${history.length} shots this session` : 'This session is empty'}</CardDescription></div><Badge variant="secondary">{history.length}</Badge></CardHeader>
-                <Separator />
-                <CardContent className="min-h-0 flex-1 overflow-auto p-0">
-                  {history.length ? (
-                    <Table><TableHeader className="sticky top-0 z-10 bg-card"><TableRow><TableHead className="pl-6">Shot</TableHead><TableHead>Club speed</TableHead><TableHead>Path</TableHead><TableHead>Tempo</TableHead><TableHead>Carry</TableHead></TableRow></TableHeader><TableBody>
-                      {history.map((item) => <TableRow key={item.id} data-state={item.id === shot.id ? 'selected' : undefined}><TableCell className="pl-6 font-medium text-foreground">#{item.id}</TableCell><TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell><TableCell className={item.path < 0 ? 'text-chart-3' : 'text-primary'}>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell><TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell><TableCell>{formatDistance(item.carry, units)}</TableCell></TableRow>)}
-                    </TableBody></Table>
-                  ) : <EmptyState icon={List} title="No shots yet" description="Shots recorded by your R10 will be listed here." compact />}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="view" className="h-full">
-              <EmptyState icon={Box} title="Shot view is coming soon" description="Trajectory, carry, and total distance will be visualized here from real R10 data." badge="In development" />
-            </TabsContent>
-
-            <TabsContent value="settings" className="h-full">
-              <Card className="flex h-full min-h-0 flex-col overflow-hidden">
-                <CardHeader className="shrink-0 flex-row items-center justify-between py-4 sm:px-6"><div><CardTitle className="flex items-center gap-2 text-base"><SlidersHorizontal className="size-4 text-primary" />Settings</CardTitle><CardDescription className="mt-1">Units, tee distance, theme, voice output, and spoken metrics.</CardDescription></div><Badge variant="secondary">{enabledCount} on</Badge></CardHeader>
-                <Separator />
-                <CardContent className="min-h-0 flex-1 overflow-y-auto p-0">
-                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-                    <div>
-                      <p className="text-sm font-semibold">Units</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">How speeds are displayed and spoken.</p>
-                    </div>
-                    <ToggleGroup type="single" value={units} onValueChange={(value) => { if (value) setUnits(value as 'imperial' | 'metric') }} aria-label="Measurement units"><ToggleGroupItem value="imperial">US</ToggleGroupItem><ToggleGroupItem value="metric">Metric</ToggleGroupItem></ToggleGroup>
-                  </section>
-
-                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-                    <p className="text-sm font-semibold">Theme</p>
-                    <ToggleGroup type="single" value={theme} onValueChange={(value) => { if (value) setTheme(value as ThemePreference) }} aria-label="Theme"><ToggleGroupItem value="system">System</ToggleGroupItem><ToggleGroupItem value="light">Light</ToggleGroupItem><ToggleGroupItem value="dark">Dark</ToggleGroupItem></ToggleGroup>
-                  </section>
-
-                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-                    <div>
-                      <p className="text-sm font-semibold">Tee distance</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{units === 'imperial' ? 'Distance from the unit to the ball in yards.' : 'Distance from the unit to the ball in meters.'}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="icon" variant="outline" onClick={() => setTeeDistance((current) => Math.max(TEE_DISTANCE_MIN, Math.round((current - TEE_DISTANCE_STEP) * 10) / 10))} disabled={teeDistance <= TEE_DISTANCE_MIN} aria-label="Decrease tee distance"><Minus className="size-4" /></Button>
-                      <span className="w-14 text-center text-sm font-semibold tabular-nums">{formatTeeDistance(teeDistance, units)}</span>
-                      <Button size="icon" variant="outline" onClick={() => setTeeDistance((current) => Math.min(TEE_DISTANCE_MAX, Math.round((current + TEE_DISTANCE_STEP) * 10) / 10))} disabled={teeDistance >= TEE_DISTANCE_MAX} aria-label="Increase tee distance"><Plus className="size-4" /></Button>
-                    </div>
-                  </section>
-
-                  <section className="flex items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
-                    <div>
-                      <p className="text-sm font-semibold">Voice output</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">Announce results after each swing.</p>
-                    </div>
-                    <Switch checked={voiceEnabled} onCheckedChange={setVoiceEnabled} aria-label="Voice output" />
-                  </section>
-
-                  <section className="px-4 py-4 sm:px-6">
-                    <p className="text-sm font-semibold">Spoken metrics</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Choose what is called out after a shot.</p>
-                    <div className="mt-3 grid grid-cols-2 gap-x-4 border-t border-border">
-                      {(Object.keys(metricLabels) as MetricKey[]).map((key) => <label key={key} className="flex min-w-0 cursor-pointer items-center justify-between gap-2 border-b border-border py-2.5"><span className="truncate text-xs font-medium sm:text-sm">{metricLabels[key]}</span><Switch checked={enabledMetrics[key]} onCheckedChange={() => toggleMetric(key)} aria-label={`Speak ${metricLabels[key]}`} /></label>)}
-                    </div>
-                    <div className="mt-3 flex items-center gap-3 rounded-xl border border-primary/20 bg-accent/15 p-3">
-                      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"><Volume2 className="size-4" /></div>
-                      <div className="min-w-0 flex-1">
-                        <p className="text-xs font-semibold">Voice preview</p>
-                        <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{speechPreview}</p>
-                      </div>
-                      <Button size="icon" variant={previewSpeaking ? 'secondary' : 'default'} onClick={togglePreview} aria-label={previewSpeaking ? 'Stop preview' : 'Play preview'}>{previewSpeaking ? <Pause /> : <Play />}</Button>
-                    </div>
-                  </section>
-
-                  <section className="px-4 py-4 sm:px-6">
-                    <p className="text-sm font-semibold">Debug</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">Copy the recent session log when something goes wrong with the R10.</p>
-                    <div className="mt-3 flex items-center gap-3">
-                      <Button variant="outline" size="sm" onClick={() => void copySessionLogs()} disabled={!isTauriRuntime() || copyingLogs}>
-                        {copyingLogs ? 'Copying...' : 'Copy session logs'}
-                      </Button>
-                      {logCopyState && <span className="text-xs text-muted-foreground">{logCopyState}</span>}
-                    </div>
-                  </section>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </div>
-        </main>
-
-        <nav className={cn('border-t border-border bg-background/95 px-3 pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur', statsExpanded && 'hidden')} aria-label="Primary navigation">
-          <TabsList className="mx-auto grid h-auto w-full max-w-xl grid-cols-4 bg-transparent p-0">{tabs.map(({ id, label, icon: Icon }) => <TabsTrigger key={id} value={id} className="flex-col gap-1 rounded-xl py-1.5 text-[0.65rem] data-[state=active]:bg-accent data-[state=active]:text-accent-foreground sm:flex-row sm:py-2 sm:text-xs"><Icon />{label}</TabsTrigger>)}</TabsList>
-        </nav>
-      </div>
-
-      <Dialog open={connectionOpen} onOpenChange={(open) => { if (!open) void cancelConnection(); else setConnectionOpen(true) }}>
-        <DialogContent showCloseButton={!connectionBusy} onEscapeKeyDown={(event) => { if (connectionBusy) event.preventDefault() }} onPointerDownOutside={(event) => { if (connectionBusy) event.preventDefault() }}>
-          <DialogHeader>
-            <p className="font-mono text-[0.65rem] uppercase tracking-[0.16em] text-primary">Garmin Approach R10</p>
-            <DialogTitle>{connectionTitle(connectionPhase)}</DialogTitle>
-            <DialogDescription role="status" aria-live="polite">{connectionStatus}</DialogDescription>
-          </DialogHeader>
-
-          {(connectionPhase === 'scanning' || connectionPhase === 'selecting') && (
-            <div className="min-h-0 space-y-3 overflow-y-auto">
-              <div className="flex items-start gap-3 rounded-xl bg-muted/60 p-3 text-xs leading-relaxed text-muted-foreground">
-                <Radio className="mt-0.5 size-4 shrink-0 text-primary" />
-                <span>Close Garmin Golf, power on the R10, and wait for its status light to turn blue.</span>
-              </div>
-              {r10Devices.length ? (
-                <div className="grid gap-2">
-                  {r10Devices.map((device) => (
-                    <button key={device.address} type="button" className="flex w-full items-center justify-between rounded-xl border border-border bg-background/50 p-4 text-left outline-none transition-colors hover:border-primary/50 hover:bg-accent/20 focus-visible:ring-2 focus-visible:ring-ring" onClick={() => void connectToDevice(device)}>
-                      <span><strong className="block text-sm">{displayDeviceName(device)}</strong><small className="mt-1 block font-mono text-[0.65rem] text-muted-foreground">{device.address === preferredR10Address ? 'Previously connected' : 'Nearby device'}</small></span>
-                      <span className="flex items-center gap-2 font-mono text-xs text-muted-foreground">{device.rssi ?? '—'} dBm <ArrowRight className="size-4 text-primary" /></span>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex min-h-32 flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border text-center">
-                  <LoaderCircle className="size-5 animate-spin text-primary" />
-                  <p className="text-sm text-muted-foreground">Scanning nearby Bluetooth devices...</p>
-                </div>
+        <main className={cn('min-h-0 overflow-hidden', statsExpanded ? 'p-1' : 'p-1.5')} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}>
+          {page.id === 'data' && (
+            <div className="relative h-full min-h-0 overflow-y-auto">
+              <MetricGrid
+                order={metricOrder}
+                hidden={hiddenMetrics}
+                editMode={editMode}
+                shot={shot}
+                hasShot={hasShot}
+                units={units}
+                onReorder={setMetricOrder}
+                onToggleHidden={toggleHiddenMetric}
+              />
+              {statsExpanded && (
+                <Button
+                  className="!absolute right-1 top-1 z-20"
+                  size="small"
+                  appearance="secondary"
+                  icon={<ArrowMinimizeRegular />}
+                  onClick={() => setStatsExpanded(false)}
+                  aria-label="Minimize stats"
+                />
               )}
             </div>
           )}
 
-          {connectionPhase === 'error' && !selectedDevice && (
-            <Alert variant="destructive"><CircleAlert /><AlertTitle>Could not find an R10</AlertTitle><AlertDescription>{connectionError}</AlertDescription></Alert>
-          )}
-
-          {!['idle', 'scanning', 'selecting'].includes(connectionPhase) && (connectionPhase !== 'error' || selectedDevice) && (
-            <div className="min-h-0 space-y-4 overflow-y-auto">
-              {selectedDevice && <div className="flex items-center justify-between rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"><span><strong className="block text-sm">{displayDeviceName(selectedDevice)}</strong><small className="font-mono text-[0.65rem] text-muted-foreground">Selected launch monitor</small></span><Bluetooth className="size-5 text-primary" /></div>}
-              {connectionPhase !== 'error' && <div className="flex min-h-24 items-center gap-3 rounded-xl border border-border bg-background/50 px-4"><LoaderCircle className="size-5 animate-spin text-primary" /><p className="text-sm text-muted-foreground">Connecting to your R10...</p></div>}
-              {connectionPhase === 'error' && <Alert variant="destructive"><CircleAlert /><AlertTitle>Connection stopped</AlertTitle><AlertDescription>{connectionError}</AlertDescription></Alert>}
+          {page.id === 'session' && (
+            <div className="h-full min-h-0 overflow-auto rounded-md border border-[var(--colorNeutralStroke2)]">
+              {history.length ? (
+                <Table size="small" aria-label="Shot log">
+                  <TableHeader className="sticky top-0 z-10 bg-[var(--colorNeutralBackground1)]">
+                    <TableRow>
+                      <TableHeaderCell className="pl-3">Shot</TableHeaderCell>
+                      <TableHeaderCell>Club speed</TableHeaderCell>
+                      <TableHeaderCell>Path</TableHeaderCell>
+                      <TableHeaderCell>Tempo</TableHeaderCell>
+                      <TableHeaderCell>Carry</TableHeaderCell>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {history.map((item) => (
+                      <TableRow key={item.id} appearance={item.id === shot.id ? 'brand' : 'none'}>
+                        <TableCell className="pl-3 font-medium">#{item.id}</TableCell>
+                        <TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell>
+                        <TableCell>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell>
+                        <TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell>
+                        <TableCell>{formatDistance(item.carry, units)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              ) : (
+                <EmptyState icon={<DataUsageRegular />} title="No shots yet" description="Shots recorded by your R10 will be listed here." />
+              )}
             </div>
           )}
 
-          <DialogFooter>
-            {connectionPhase === 'error' ? (
-              <><Button variant="ghost" onClick={() => void cancelConnection()} disabled={cleaningUp}>Cancel</Button><Button variant="outline" onClick={() => void chooseAnotherDevice()}>Choose another</Button>{selectedDevice && <Button onClick={() => void connectToDevice(selectedDevice)}>Retry connection</Button>}</>
-            ) : (
-              <Button variant="ghost" onClick={() => void cancelConnection()} disabled={cleaningUp}>{cleaningUp ? 'Cancelling...' : connectionBusy ? 'Cancel connection' : 'Close'}</Button>
+          {page.id === 'view' && (
+            <EmptyState icon={<BoxRegular />} title="Shot view is coming soon" description="Trajectory, carry, and total distance will be visualized here from real R10 data." badge="In development" />
+          )}
+        </main>
+
+        <footer className={cn('flex items-center justify-between gap-1 border-t border-[var(--colorNeutralStroke2)] px-2 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1', statsExpanded && 'hidden')} aria-label="Page navigation">
+          <TabList
+            size="small"
+            selectedValue={page.id}
+            onTabSelect={(_, data) => {
+              setEditMode(false)
+              setPageIndex(pages.findIndex(({ id }) => id === data.value))
+            }}
+          >
+            <Tab value="data" icon={<DataUsageRegular />}>Data</Tab>
+            <Tab value="session" icon={<ListRegular />}>Session</Tab>
+            <Tab value="view" icon={<BoxRegular />}>View</Tab>
+          </TabList>
+          <div className="flex items-center gap-1">
+            {page.id === 'data' && (
+              <>
+                <ToggleButton size="small" appearance="subtle" checked={editMode} icon={<EditRegular />} onClick={() => setEditMode((value) => !value)} aria-label="Edit metric layout" />
+                <Button size="small" appearance="subtle" icon={<ArrowMaximizeRegular />} onClick={() => setStatsExpanded(true)} aria-label="Expand stats" />
+              </>
             )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </Tabs>
+          </div>
+        </footer>
+      </div>
+
+      <SettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        units={units}
+        onUnitsChange={setUnits}
+        theme={theme}
+        onThemeChange={setTheme}
+        teeDistance={teeDistance}
+        teeDistanceMin={TEE_DISTANCE_MIN}
+        teeDistanceMax={TEE_DISTANCE_MAX}
+        onTeeDistanceStep={(direction) => setTeeDistance((current) => Math.min(TEE_DISTANCE_MAX, Math.max(TEE_DISTANCE_MIN, Math.round((current + direction * TEE_DISTANCE_STEP) * 10) / 10)))}
+        voiceEnabled={voiceEnabled}
+        onVoiceEnabledChange={setVoiceEnabled}
+        metricLabels={metricLabels}
+        enabledMetrics={enabledMetrics}
+        onToggleMetric={toggleMetric}
+        speechPreview={speechPreview}
+        previewSpeaking={previewSpeaking}
+        onTogglePreview={togglePreview}
+        canCopyLogs={isTauriRuntime()}
+        copyingLogs={copyingLogs}
+        logCopyState={logCopyState}
+        onCopyLogs={() => void copySessionLogs()}
+      />
+
+      <ConnectDialog
+        open={connectionOpen}
+        phase={connectionPhase}
+        status={connectionStatus}
+        error={connectionError}
+        devices={r10Devices}
+        selectedDevice={selectedDevice}
+        preferredAddress={preferredR10Address}
+        busy={connectionBusy}
+        cleaningUp={cleaningUp}
+        onCancel={() => void cancelConnection()}
+        onChooseAnother={() => void chooseAnotherDevice()}
+        onConnectDevice={(device) => void connectToDevice(device)}
+      />
+    </FluentProvider>
   )
 }
 
@@ -976,25 +913,13 @@ function isTauriRuntime() {
   return Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
 }
 
-function Brand() {
+function EmptyState({ icon, title, description, badge }: { icon: React.ReactNode; title: string; description: string; badge?: string }) {
   return (
-    <div className="flex items-center gap-3">
-      <div className="flex size-10 items-center justify-center rounded-2xl bg-primary font-mono text-sm font-semibold text-primary-foreground">10</div>
-      <div>
-        <p className="text-base font-bold tracking-tight">range10</p>
-        <p className="font-mono text-[0.58rem] uppercase tracking-[0.16em] text-muted-foreground">Range companion</p>
-      </div>
-    </div>
-  )
-}
-
-function EmptyState({ icon: Icon, title, description, badge, compact = false }: { icon: typeof Activity; title: string; description: string; badge?: string; compact?: boolean }) {
-  return (
-    <div className={`flex h-full min-h-0 flex-col items-center justify-center rounded-[var(--radius)] border border-dashed border-border bg-card/50 px-6 text-center ${compact ? 'rounded-none border-0' : ''}`}>
-      <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-muted text-primary"><Icon className="size-6" /></div>
-      {badge && <Badge variant="outline" className="mb-3 border-primary/30 text-primary">{badge}</Badge>}
-      <h2 className="font-serif text-2xl sm:text-3xl">{title}</h2>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{description}</p>
+    <div className="flex h-full min-h-0 flex-col items-center justify-center rounded-md border border-dashed border-[var(--colorNeutralStroke2)] px-6 text-center">
+      <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-[var(--colorNeutralBackground3)] text-2xl text-[var(--colorBrandForeground1)]">{icon}</div>
+      {badge && <Badge appearance="outline" color="brand" className="mb-3">{badge}</Badge>}
+      <h2 className="text-xl font-semibold sm:text-2xl">{title}</h2>
+      <p className="mt-2 max-w-sm text-sm leading-relaxed text-[var(--colorNeutralForeground3)]">{description}</p>
     </div>
   )
 }
