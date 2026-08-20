@@ -9,6 +9,8 @@ export type Shot = {
   face: number
   attack: number
   tempo: number
+  backswingTime: number
+  downswingTime: number
   launch: number
   ballSpeed: number
   spin: number
@@ -98,6 +100,15 @@ export function calculateTempo(swing: R10Shot['swing']) {
   return backswing > 0 && downswing > 0 ? backswing / downswing : 0
 }
 
+// Swing timestamps are reported in milliseconds; returns seconds.
+export function calculateSwingTimes(swing: R10Shot['swing']): { backswingTime: number; downswingTime: number } {
+  if (!swing) return { backswingTime: 0, downswingTime: 0 }
+  const backswing = (swing.downswing_start - swing.backswing_start) / 1000
+  const downswing = (swing.impact - swing.downswing_start) / 1000
+  if (backswing <= 0 || downswing <= 0) return { backswingTime: 0, downswingTime: 0 }
+  return { backswingTime: backswing, downswingTime: downswing }
+}
+
 export function errorMessage(error: unknown, fallback: string) {
   if (error instanceof Error) return error.message
   if (typeof error === 'string') return error
@@ -126,9 +137,11 @@ export type StatMetricKey =
   | 'spinAxis'
   | 'apex'
   | 'tempo'
+  | 'backswingTime'
+  | 'downswingTime'
   | 'timeOfFlight'
 
-export type StatMetricKind = 'distance' | 'speed' | 'spin' | 'spinSigned' | 'degrees' | 'degreesSigned' | 'seconds' | 'smash' | 'tempo'
+export type StatMetricKind = 'distance' | 'speed' | 'spin' | 'spinSigned' | 'degrees' | 'degreesSigned' | 'seconds' | 'secondsPrecise' | 'smash' | 'tempo'
 
 export type StatMetric = {
   key: StatMetricKey
@@ -161,6 +174,8 @@ export function highlightParts(metric: StatMetric, shot: Shot, units: 'imperial'
       return { value: `${raw > 0 ? '+' : ''}${raw.toFixed(1)}°` }
     case 'seconds':
       return { value: `${raw.toFixed(1)} s` }
+    case 'secondsPrecise':
+      return raw > 0 ? { value: raw.toFixed(2), unit: 's' } : { value: '—' }
     case 'smash':
       return { value: raw.toFixed(2) }
     case 'tempo':
@@ -223,6 +238,8 @@ export const statMetrics: StatMetric[] = [
   { key: 'spinAxis', label: 'Spin Axis', kind: 'degreesSigned', value: degrees('spinAxis'), format: (v) => formatSignedDegrees(v) },
   { key: 'apex', label: 'Apex Height', kind: 'distance', value: distance('apex'), format: (v, u) => formatDistance(v, u) },
   { key: 'tempo', label: 'Tempo', kind: 'tempo', value: speed('tempo'), format: (v) => (v > 0 ? formatTempo(v) : '—') },
+  { key: 'backswingTime', label: 'Backswing Time', kind: 'secondsPrecise', value: speed('backswingTime'), format: (v) => (v > 0 ? `${v.toFixed(2)} s` : '—') },
+  { key: 'downswingTime', label: 'Downswing Time', kind: 'secondsPrecise', value: speed('downswingTime'), format: (v) => (v > 0 ? `${v.toFixed(2)} s` : '—') },
   { key: 'timeOfFlight', label: 'Time of Flight', kind: 'seconds', value: speed('timeOfFlight'), format: (v) => formatSeconds(v) },
 ]
 

@@ -23,6 +23,7 @@ import { SettingsDrawer, type ThemePreference } from '@/components/SettingsDrawe
 import { darkTheme, lightTheme, themeColors } from '@/theme'
 import { cn } from '@/lib/utils'
 import {
+  calculateSwingTimes,
   calculateTempo,
   errorMessage,
   formatDistance,
@@ -97,6 +98,8 @@ const initialShot: Shot = {
   face: 0,
   attack: 0,
   tempo: 0,
+  backswingTime: 0,
+  downswingTime: 0,
   launch: 0,
   ballSpeed: 0,
   spin: 0,
@@ -121,6 +124,8 @@ const previewShot: Shot = {
   face: 0.4,
   attack: -3.1,
   tempo: 3,
+  backswingTime: 0.7,
+  downswingTime: 0.23,
   launch: 16.5,
   ballSpeed: 144.8,
   spin: 2420,
@@ -159,6 +164,8 @@ function mockShot(id: number): Shot {
     face: jittered(previewShot.face, 1.5),
     attack: jittered(previewShot.attack, 1.5),
     tempo: 3,
+    backswingTime: jittered(previewShot.backswingTime, 0.08),
+    downswingTime: jittered(previewShot.downswingTime, 0.03),
     launch: jittered(previewShot.launch, 3),
     ballSpeed: jittered(previewShot.ballSpeed, 6),
     spin: jittered(previewShot.spin, 400),
@@ -385,6 +392,7 @@ function App() {
         face: payload.club?.face_angle ?? 0,
         attack: payload.club?.attack_angle ?? 0,
         tempo: calculateTempo(payload.swing),
+        ...calculateSwingTimes(payload.swing),
         launch: payload.ball?.launch_angle ?? 0,
         ballSpeed: (payload.ball?.ball_speed ?? 0) * 2.23694,
         spin: payload.ball?.total_spin ?? 0,

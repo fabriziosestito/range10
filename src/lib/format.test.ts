@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
+import { calculateSwingTimes, calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
@@ -8,6 +8,8 @@ const shot: Shot = {
   face: 0.4,
   attack: -3.1,
   tempo: 3,
+  backswingTime: 0.7,
+  downswingTime: 0.23,
   launch: 16.5,
   ballSpeed: 144.8,
   spin: 2420,
@@ -70,6 +72,20 @@ describe('calculateTempo', () => {
 
   it('returns zero for invalid timestamps', () => {
     expect(calculateTempo({ backswing_start: 100, downswing_start: 900, impact: 500 })).toBe(0)
+  })
+})
+
+describe('calculateSwingTimes', () => {
+  it('converts millisecond timestamps to seconds', () => {
+    expect(calculateSwingTimes({ backswing_start: 100, downswing_start: 800, impact: 1030 })).toEqual({ backswingTime: 0.7, downswingTime: 0.23 })
+  })
+
+  it('returns zeros when there is no swing', () => {
+    expect(calculateSwingTimes(null)).toEqual({ backswingTime: 0, downswingTime: 0 })
+  })
+
+  it('returns zeros for invalid timestamps', () => {
+    expect(calculateSwingTimes({ backswing_start: 100, downswing_start: 900, impact: 500 })).toEqual({ backswingTime: 0, downswingTime: 0 })
   })
 })
 
@@ -164,7 +180,7 @@ describe('statMetrics registry', () => {
   it('exposes every pinnable metric key uniquely', () => {
     const keys = statMetrics.map((metric) => metric.key)
     expect(new Set(keys).size).toBe(keys.length)
-    expect(keys.length).toBe(22)
+    expect(keys.length).toBe(24)
   })
 
   it('formats carry as a distance in both units', () => {
