@@ -49,7 +49,15 @@ struct ShotMetrics {
     total_deviation_deg: f32,
 }
 
-fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> {
+fn atmos_for_metrics(app: &AppHandle) -> AtmosphericData {
+    app.state::<SessionState>()
+        .atmos
+        .lock()
+        .map(|a| *a)
+        .unwrap_or(DEFAULT_ATMOS)
+}
+
+fn compute_shot_metrics(app: &AppHandle, shot: &tenover::proto::ShotData) -> Option<ShotMetrics> {
     let ball = shot.ball?;
     let launch = LaunchData {
         ball_speed_mph: ball.ball_speed * 2.23694,
@@ -59,7 +67,8 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
         sidespin_rpm: ball.sidespin,
         ..Default::default()
     };
-    match libgolf_rs::run_shot(launch, DEFAULT_ATMOS, GroundSurface::default()) {
+    let atmos = atmos_for_metrics(app);
+    match libgolf_rs::run_shot(launch, atmos, GroundSurface::default()) {
         Ok(result) => {
             // Interleaved (lateral x, downrange y, height z) in yards.
             let carry_offset = result.carry_index * 3;
@@ -96,7 +105,7 @@ fn compute_shot_metrics(shot: &tenover::proto::ShotData) -> Option<ShotMetrics> 
 // voice channel; standalone simulation passes None and speaks on its own
 // thread instead.
 fn handle_shot(app: &AppHandle, shot: &ShotData, voice_tx: Option<&Sender<String>>) {
-    if let Some(metrics) = compute_shot_metrics(shot) {
+    if let Some(metrics) = compute_shot_metrics(app, shot) {
         let _ = app.emit("r10://shot-metrics", &metrics);
     }
     let _ = app.emit("r10://shot", shot);
@@ -169,6 +178,7 @@ struct SessionState {
     stop: Mutex<Option<Sender<()>>>,
     tee: Mutex<Option<Sender<f32>>>,
     tee_yards: Mutex<f32>,
+    atmos: Mutex<AtmosphericData>,
 }
 
 impl Default for SessionState {
@@ -177,6 +187,7 @@ impl Default for SessionState {
             stop: Mutex::new(None),
             tee: Mutex::new(None),
             tee_yards: Mutex::new(DEFAULT_TEE_DISTANCE_YARDS),
+            atmos: Mutex::new(DEFAULT_ATMOS),
         }
     }
 }
@@ -187,6 +198,15 @@ fn set_voice_config(state: State<'_, VoiceState>, config: VoiceConfig) -> Result
         .config
         .lock()
         .map_err(|_| "voice config lock poisoned".to_string())? = config;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_atmos(state: State<'_, SessionState>, atmos: AtmosphericData) -> Result<(), String> {
+    *state
+        .atmos
+        .lock()
+        .map_err(|_| "session state lock poisoned".to_string())? = atmos;
     Ok(())
 }
 
@@ -569,6 +589,7 @@ pub fn run() {
             stop_r10,
             set_voice_config,
             set_tee_distance,
+            set_atmos,
             simulate_shot,
             connection_info,
             read_app_log

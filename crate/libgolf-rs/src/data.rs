@@ -50,7 +50,7 @@ impl Default for LaunchData {
 ///
 /// `wind_direction_deg` is the direction the wind is blowing toward
 /// (positive = right of the target line), so a tailwind is 0°.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct AtmosphericData {
     /// Air temperature in degrees Fahrenheit.
     pub temp_f: f32,

@@ -5,3 +5,6 @@ description = "Pure-Rust port of the libgolf golf ball flight model"
 license = "GPL-3.0-only"
 edition = "2021"
 rust-version = "1.94"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

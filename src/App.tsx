@@ -45,6 +45,28 @@ const pages = [
   { id: 'view', label: 'View' },
 ] as const
 
+type WeatherMode = 'local' | 'custom'
+
+type AtmosphericData = {
+  temp_f: number
+  elevation_ft: number
+  wind_mph: number
+  wind_direction_deg: number
+  wind_height_ft: number
+  rel_humidity: number
+  pressure_inhg: number
+}
+
+type SavedWeather = {
+  mode?: WeatherMode
+  custom_temp_f?: number
+  custom_wind_mph?: number
+  custom_wind_dir?: number
+  custom_humidity?: number
+  custom_pressure?: number
+  last_local_atmos?: AtmosphericData | null
+}
+
 type SavedPreferences = {
   preferredR10Address?: string
   enabledMetrics?: Record<MetricKey, boolean>
@@ -55,6 +77,7 @@ type SavedPreferences = {
   pinnedMetrics?: StatMetricKey[]
   metricOrder?: StatMetricKey[]
   hiddenMetrics?: StatMetricKey[]
+  weather?: SavedWeather | null
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -80,6 +103,16 @@ const defaultEnabledMetrics: Record<MetricKey, boolean> = {
 }
 
 const settingsStore = new LazyStore('settings.json')
+
+const DEFAULT_ATMOS: AtmosphericData = {
+  temp_f: 70,
+  elevation_ft: 0,
+  wind_mph: 0,
+  wind_direction_deg: 0,
+  wind_height_ft: 0,
+  rel_humidity: 50,
+  pressure_inhg: 29.92,
+}
 
 const TEE_DISTANCE_DEFAULT = 2.3
 
@@ -206,6 +239,15 @@ function App() {
   const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
+  const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
+  const [customTempF, setCustomTempF] = useState(DEFAULT_ATMOS.temp_f)
+  const [customWindMph, setCustomWindMph] = useState(DEFAULT_ATMOS.wind_mph)
+  const [customWindDir, setCustomWindDir] = useState(DEFAULT_ATMOS.wind_direction_deg)
+  const [customHumidity, setCustomHumidity] = useState(DEFAULT_ATMOS.rel_humidity)
+  const [customPressure, setCustomPressure] = useState(DEFAULT_ATMOS.pressure_inhg)
+  const [lastLocalAtmos, setLastLocalAtmos] = useState<AtmosphericData | null>(null)
+  const [weatherWarning, setWeatherWarning] = useState('')
+  const [weatherSource, setWeatherSource] = useState<'local' | 'custom' | 'defaults'>('local')
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
   const [enabledMetrics, setEnabledMetrics] = useState<Record<MetricKey, boolean>>(defaultEnabledMetrics)
@@ -336,6 +378,15 @@ function App() {
         if (saved.metricOrder?.length || saved.pinnedMetrics?.length) setMetricOrder(normalizeMetricOrder(saved.metricOrder, saved.pinnedMetrics))
         if (saved.hiddenMetrics) setHiddenMetrics(saved.hiddenMetrics.filter((key) => defaultMetricOrder.includes(key)))
         if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
+        if (saved.weather) {
+          if (saved.weather.mode) setWeatherMode(saved.weather.mode)
+          if (typeof saved.weather.custom_temp_f === 'number') setCustomTempF(saved.weather.custom_temp_f)
+          if (typeof saved.weather.custom_wind_mph === 'number') setCustomWindMph(saved.weather.custom_wind_mph)
+          if (typeof saved.weather.custom_wind_dir === 'number') setCustomWindDir(saved.weather.custom_wind_dir)
+          if (typeof saved.weather.custom_humidity === 'number') setCustomHumidity(saved.weather.custom_humidity)
+          if (typeof saved.weather.custom_pressure === 'number') setCustomPressure(saved.weather.custom_pressure)
+          if (saved.weather.last_local_atmos) setLastLocalAtmos(saved.weather.last_local_atmos)
+        }
       } finally {
         if (active) setSettingsLoaded(true)
       }
@@ -345,10 +396,13 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
-    void settingsStore.set('preferences', { preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics })
+    void settingsStore.set('preferences', {
+      preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics,
+      weather: { mode: weatherMode, custom_temp_f: customTempF, custom_wind_mph: customWindMph, custom_wind_dir: customWindDir, custom_humidity: customHumidity, custom_pressure: customPressure, last_local_atmos: lastLocalAtmos },
+    })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [enabledMetrics, hiddenMetrics, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled])
+  }, [customHumidity, customPressure, customTempF, customWindDir, customWindMph, enabledMetrics, hiddenMetrics, lastLocalAtmos, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled, weatherMode])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -366,6 +420,122 @@ function App() {
     media.addEventListener('change', applyTheme)
     return () => media.removeEventListener('change', applyTheme)
   }, [theme])
+
+  const effectiveAtmos: AtmosphericData = useMemo(() => {
+    if (weatherMode === 'local' && lastLocalAtmos) return lastLocalAtmos
+    if (weatherMode === 'custom') {
+      const base = lastLocalAtmos ?? DEFAULT_ATMOS
+      return {
+        temp_f: customTempF,
+        elevation_ft: base.elevation_ft,
+        wind_mph: customWindMph,
+        wind_direction_deg: customWindDir,
+        wind_height_ft: 0,
+        rel_humidity: customHumidity,
+        pressure_inhg: customPressure,
+      }
+    }
+    return DEFAULT_ATMOS
+  }, [customHumidity, customPressure, customTempF, customWindDir, customWindMph, lastLocalAtmos, weatherMode])
+
+  useEffect(() => {
+    if (!settingsLoaded) return
+    const source: 'local' | 'custom' | 'defaults' =
+      weatherMode === 'local' && lastLocalAtmos ? 'local' : weatherMode === 'custom' ? 'custom' : 'defaults'
+    setWeatherSource(source)
+    if (isTauriRuntime()) void invoke('set_atmos', { atmos: effectiveAtmos }).catch(() => undefined)
+  }, [effectiveAtmos, lastLocalAtmos, settingsLoaded, weatherMode])
+
+  const fetchLocalWeather = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      setWeatherWarning('Location unavailable — using custom defaults.')
+      return
+    }
+    let latitude: number | null = null
+    let longitude: number | null = null
+    let altitude: number | null = null
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, maximumAge: 300000 })
+    }).catch(() => null as GeolocationPosition | null)
+    if (position) {
+      latitude = position.coords.latitude
+      longitude = position.coords.longitude
+      altitude = position.coords.altitude
+    } else {
+      // Fallback: IP-based geolocation so Local still works when permission denied (e.g. browser prompt dismissed or Tauri WebView without location entitlement)
+      try {
+        const ip = await fetch('https://ipapi.co/json/').then((r) => (r.ok ? r.json() : null)) as { latitude?: number; longitude?: number } | null
+        if (ip?.latitude && ip?.longitude) {
+          latitude = ip.latitude
+          longitude = ip.longitude
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (latitude == null || longitude == null) {
+      setWeatherWarning('Couldn’t get location — using custom defaults. Check location permission or connection.')
+      return
+    }
+    try {
+      const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m`)
+      if (!res.ok) throw new Error(`Open-Meteo ${res.status}`)
+      const data = await res.json() as {
+        current?: { temperature_2m?: number; relative_humidity_2m?: number; surface_pressure?: number; wind_speed_10m?: number; wind_direction_10m?: number }
+        elevation?: number
+      }
+      const cur = data.current
+      if (!cur) throw new Error('No current data')
+      const tempC = cur.temperature_2m ?? 21
+      const humidity = cur.relative_humidity_2m ?? 50
+      const pressureHpa = cur.surface_pressure ?? 1013
+      const windKmh = cur.wind_speed_10m ?? 0
+      const windDir = cur.wind_direction_10m ?? 0
+      const elevationM = (data as unknown as { elevation?: number }).elevation ?? altitude ?? 0
+      const elevationFt = typeof elevationM === 'number' ? elevationM * 3.28084 : 0
+      const atmos: AtmosphericData = {
+        temp_f: tempC * 9 / 5 + 32,
+        elevation_ft: elevationFt,
+        wind_mph: windKmh * 0.621371,
+        wind_direction_deg: windDir,
+        wind_height_ft: 0,
+        rel_humidity: humidity,
+        pressure_inhg: pressureHpa * 0.0295299830714,
+      }
+      setLastLocalAtmos(atmos)
+      setWeatherWarning('')
+    } catch {
+      setWeatherWarning('Couldn’t reach Open-Meteo — using custom defaults. Check connection.')
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!settingsLoaded) return
+    if (weatherMode !== 'local') return
+    if (lastLocalAtmos) return
+    void fetchLocalWeather()
+  }, [fetchLocalWeather, lastLocalAtmos, settingsLoaded, weatherMode])
+
+  const handleWeatherModeChange = (mode: WeatherMode) => {
+    if (mode === 'custom' && lastLocalAtmos) {
+      setCustomTempF(lastLocalAtmos.temp_f)
+      setCustomWindMph(lastLocalAtmos.wind_mph)
+      setCustomWindDir(lastLocalAtmos.wind_direction_deg)
+      setCustomHumidity(lastLocalAtmos.rel_humidity)
+      setCustomPressure(lastLocalAtmos.pressure_inhg)
+    } else if (mode === 'custom' && !lastLocalAtmos) {
+      setCustomTempF(DEFAULT_ATMOS.temp_f)
+      setCustomWindMph(DEFAULT_ATMOS.wind_mph)
+      setCustomWindDir(DEFAULT_ATMOS.wind_direction_deg)
+      setCustomHumidity(DEFAULT_ATMOS.rel_humidity)
+      setCustomPressure(DEFAULT_ATMOS.pressure_inhg)
+    }
+    if (mode === 'local') {
+      setWeatherWarning('')
+      if (!lastLocalAtmos) void fetchLocalWeather()
+    }
+    setWeatherMode(mode)
+  }
 
   useEffect(() => {
     const onShot = (event: Event) => {
@@ -766,6 +936,13 @@ function App() {
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--colorBrandBackground)] text-xs font-semibold text-[var(--colorNeutralForegroundOnBrand)]">10</div>
             <p className="truncate text-sm font-bold tracking-tight">range10</p>
+            {!statsExpanded && (
+              <Tooltip content={`${effectiveAtmos.temp_f.toFixed(0)}°F · ${effectiveAtmos.elevation_ft.toFixed(0)} ft · ${effectiveAtmos.wind_mph.toFixed(0)} mph · ${effectiveAtmos.rel_humidity.toFixed(0)}% · ${effectiveAtmos.pressure_inhg.toFixed(2)} inHg (${weatherSource})`} relationship="label">
+                <Badge appearance="tint" size="small" className="hidden sm:inline-flex">
+                  {effectiveAtmos.temp_f.toFixed(0)}°F · {weatherSource}
+                </Badge>
+              </Tooltip>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {showDevTools && (
@@ -895,6 +1072,22 @@ function App() {
         copyingLogs={copyingLogs}
         logCopyState={logCopyState}
         onCopyLogs={() => void copySessionLogs()}
+        weatherMode={weatherMode}
+        onWeatherModeChange={handleWeatherModeChange}
+        lastLocalAtmos={lastLocalAtmos}
+        effectiveAtmos={effectiveAtmos}
+        weatherWarning={weatherWarning}
+        onRefreshLocal={() => void fetchLocalWeather()}
+        customTempF={customTempF}
+        onCustomTempFChange={setCustomTempF}
+        customWindMph={customWindMph}
+        onCustomWindMphChange={setCustomWindMph}
+        customWindDir={customWindDir}
+        onCustomWindDirChange={setCustomWindDir}
+        customHumidity={customHumidity}
+        onCustomHumidityChange={setCustomHumidity}
+        customPressure={customPressure}
+        onCustomPressureChange={setCustomPressure}
       />
 
       <ConnectDialog

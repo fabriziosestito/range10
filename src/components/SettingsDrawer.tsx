@@ -1,7 +1,17 @@
-import { Badge, Button, Drawer, DrawerBody, DrawerHeader, DrawerHeaderTitle, Radio, RadioGroup, Switch } from '@fluentui/react-components'
-import { AddRegular, DismissRegular, PauseRegular, PlayRegular, SubtractRegular } from '@fluentui/react-icons'
+import { Badge, Button, Drawer, DrawerBody, DrawerHeader, DrawerHeaderTitle, MessageBar, MessageBarBody, Radio, RadioGroup, Slider, Switch } from '@fluentui/react-components'
+import { AddRegular, ArrowClockwiseRegular, DismissRegular, PauseRegular, PlayRegular, SubtractRegular } from '@fluentui/react-icons'
 
 import { formatTeeDistance, type MetricKey } from '@/lib/format'
+
+type AtmosphericData = {
+  temp_f: number
+  elevation_ft: number
+  wind_mph: number
+  wind_direction_deg: number
+  wind_height_ft: number
+  rel_humidity: number
+  pressure_inhg: number
+}
 
 export type ThemePreference = 'system' | 'light' | 'dark'
 
@@ -28,6 +38,22 @@ type SettingsDrawerProps = {
   copyingLogs: boolean
   logCopyState: string
   onCopyLogs: () => void
+  weatherMode: 'local' | 'custom'
+  onWeatherModeChange: (mode: 'local' | 'custom') => void
+  lastLocalAtmos: AtmosphericData | null
+  effectiveAtmos: AtmosphericData
+  weatherWarning: string
+  onRefreshLocal: () => void
+  customTempF: number
+  onCustomTempFChange: (v: number) => void
+  customWindMph: number
+  onCustomWindMphChange: (v: number) => void
+  customWindDir: number
+  onCustomWindDirChange: (v: number) => void
+  customHumidity: number
+  onCustomHumidityChange: (v: number) => void
+  customPressure: number
+  onCustomPressureChange: (v: number) => void
 }
 
 export function SettingsDrawer(props: SettingsDrawerProps) {
@@ -37,6 +63,9 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
     voiceEnabled, onVoiceEnabledChange, metricLabels, enabledMetrics, onToggleMetric,
     speechPreview, previewSpeaking, onTogglePreview,
     canCopyLogs, copyingLogs, logCopyState, onCopyLogs,
+    weatherMode, onWeatherModeChange, lastLocalAtmos, effectiveAtmos, weatherWarning, onRefreshLocal,
+    customTempF, onCustomTempFChange, customWindMph, onCustomWindMphChange, customWindDir, onCustomWindDirChange,
+    customHumidity, onCustomHumidityChange, customPressure, onCustomPressureChange,
   } = props
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
 
@@ -78,6 +107,72 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
             <span className="w-14 text-center text-sm font-semibold tabular-nums">{formatTeeDistance(teeDistance, units)}</span>
             <Button size="small" icon={<AddRegular />} onClick={() => onTeeDistanceStep(1)} disabled={teeDistance >= teeDistanceMax} aria-label="Increase tee distance" />
           </div>
+        </section>
+
+        <section className="py-3.5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold">Weather</p>
+              <p className="mt-0.5 text-xs text-[var(--colorNeutralForeground3)]">Local uses Open-Meteo via location; Custom tweaks local.</p>
+            </div>
+            <Button size="small" appearance="subtle" icon={<ArrowClockwiseRegular />} onClick={onRefreshLocal} aria-label="Refresh local weather" />
+          </div>
+          <RadioGroup layout="horizontal" value={weatherMode} onChange={(_, data) => onWeatherModeChange(data.value as 'local' | 'custom')} aria-label="Weather mode" className="mt-2">
+            <Radio value="local" label="Local" />
+            <Radio value="custom" label="Custom" />
+          </RadioGroup>
+          {weatherWarning && (
+            <MessageBar intent="warning" className="mt-2">
+              <MessageBarBody>{weatherWarning}</MessageBarBody>
+            </MessageBar>
+          )}
+          <div className="mt-2 grid gap-2 text-xs">
+            <div className="flex justify-between text-[var(--colorNeutralForeground3)]">
+              <span>Elevation</span>
+              <span className="tabular-nums">{effectiveAtmos.elevation_ft.toFixed(0)} ft · auto</span>
+            </div>
+            {lastLocalAtmos && weatherMode === 'local' && (
+              <div className="flex justify-between text-[var(--colorNeutralForeground3)]">
+                <span>Local</span>
+                <span className="tabular-nums">{lastLocalAtmos.temp_f.toFixed(0)}°F · {lastLocalAtmos.wind_mph.toFixed(0)} mph · {lastLocalAtmos.rel_humidity.toFixed(0)}% · {lastLocalAtmos.pressure_inhg.toFixed(2)} inHg</span>
+              </div>
+            )}
+          </div>
+          {weatherMode === 'custom' && (
+            <div className="mt-3 grid gap-4">
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Temperature {(((customTempF - 32) * 5 / 9).toFixed(0))}°C / {customTempF.toFixed(0)}°F</span>
+                </div>
+                <Slider className="w-full" style={{ width: '100%' }} min={14} max={131} step={1} value={customTempF} onChange={(_, data) => onCustomTempFChange(data.value)} aria-label="Custom temperature" />
+                <div className="flex justify-between text-[0.62rem] text-[var(--colorNeutralForeground3)]"><span>-10°C</span><span>55°C</span></div>
+              </div>
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Wind {customWindMph.toFixed(0)} mph</span>
+                </div>
+                <Slider className="w-full" style={{ width: '100%' }} min={0} max={50} step={1} value={customWindMph} onChange={(_, data) => onCustomWindMphChange(data.value)} aria-label="Custom wind speed" />
+              </div>
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Wind dir {customWindDir.toFixed(0)}°</span>
+                </div>
+                <Slider className="w-full" style={{ width: '100%' }} min={0} max={359} step={1} value={customWindDir} onChange={(_, data) => onCustomWindDirChange(data.value)} aria-label="Custom wind direction" />
+              </div>
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Humidity {customHumidity.toFixed(0)}%</span>
+                </div>
+                <Slider className="w-full" style={{ width: '100%' }} min={0} max={100} step={1} value={customHumidity} onChange={(_, data) => onCustomHumidityChange(data.value)} aria-label="Custom humidity" />
+              </div>
+              <div className="w-full">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium">Pressure {customPressure.toFixed(2)} inHg</span>
+                </div>
+                <Slider className="w-full" style={{ width: '100%' }} min={28} max={32} step={0.05} value={customPressure} onChange={(_, data) => onCustomPressureChange(data.value)} aria-label="Custom pressure" />
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="flex items-center justify-between gap-3 border-b border-[var(--colorNeutralStroke2)] py-3.5">
