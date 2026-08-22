@@ -526,7 +526,17 @@ function App() {
         pressure_inhg: pressureHpa * 0.0295299830714,
       }
       setLastLocalAtmos(atmos)
-      setLastLocalPlace(`${latitude.toFixed(3)}, ${longitude.toFixed(3)}`)
+      // Best-effort reverse geocode for a friendly place name; coords fallback.
+      const fallbackPlace = `${latitude.toFixed(3)}, ${longitude.toFixed(3)}`
+      try {
+        const geo = await fetch(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`)
+          .then((r) => (r.ok ? r.json() : null)) as { city?: string; locality?: string; principalSubdivision?: string; countryName?: string } | null
+        const town = geo?.city || geo?.locality
+        const area = geo?.principalSubdivision || geo?.countryName
+        setLastLocalPlace(town ? (area ? `${town}, ${area}` : town) : fallbackPlace)
+      } catch {
+        setLastLocalPlace(fallbackPlace)
+      }
       setLastLocalAt(Date.now())
       setWeatherWarning('')
       setWeatherMode('local')
