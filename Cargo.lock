@@ -75,6 +75,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-blec",
+ "tauri-plugin-geolocation",
  "tauri-plugin-log",
  "tauri-plugin-store",
  "tauri-plugin-tts",
@@ -4025,6 +4026,20 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "tauri-plugin-geolocation"
+version = "2.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0366e51823ad001ff1a47f116cd34ddfea3d94ebeb2309caf42e290dec27e0a6"
+dependencies = [
+ "log",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

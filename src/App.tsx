@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
 import { checkPermissions, connect as connectBle, disconnect as disconnectBle, startScan, stopScan, type BleDevice } from '@mnlphlp/plugin-blec'
+import { checkPermissions as checkGeoPermissions, getCurrentPosition, requestPermissions as requestGeoPermissions } from '@tauri-apps/plugin-geolocation'
 import { isSpeaking, speak, stop } from 'tauri-plugin-tts-api'
 import { Badge, Button, FluentProvider, Spinner, Tab, TabList, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, ToggleButton, Tooltip } from '@fluentui/react-components'
 import {
@@ -187,6 +188,34 @@ function normalizeMetricOrder(saved: StatMetricKey[] | undefined, pinned?: StatM
 }
 
 const showDevTools = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === '1'
+
+type DevicePosition = { latitude: number; longitude: number; altitude: number | null }
+
+// Native GPS via the Tauri geolocation plugin (iOS/Android). On desktop or in
+// the browser the plugin commands are unavailable, so fall back to
+// navigator.geolocation. Returns null when no position could be acquired.
+async function getDevicePosition(): Promise<DevicePosition | null> {
+  if (isTauriRuntime()) {
+    try {
+      let permissions = await checkGeoPermissions()
+      if (permissions.location === 'prompt' || permissions.location === 'prompt-with-rationale') {
+        permissions = await requestGeoPermissions(['location'])
+      }
+      if (permissions.location === 'granted') {
+        const position = await getCurrentPosition({ enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 })
+        return { latitude: position.coords.latitude, longitude: position.coords.longitude, altitude: position.coords.altitude ?? null }
+      }
+    } catch {
+      // Plugin not registered on this platform (desktop) — fall through.
+    }
+  }
+  if (typeof navigator === 'undefined' || !navigator.geolocation) return null
+  const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, maximumAge: 300000 })
+  }).catch(() => null as GeolocationPosition | null)
+  if (!position) return null
+  return { latitude: position.coords.latitude, longitude: position.coords.longitude, altitude: position.coords.altitude }
+}
 
 function jittered(base: number, range: number) {
   return base + (Math.random() - 0.5) * 2 * range
@@ -469,18 +498,12 @@ function App() {
       setCustomPressure(base.pressure_inhg)
       setWeatherMode('custom')
     }
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      failToCustom('Location unavailable on this device — switched to Custom.')
-      return
-    }
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, maximumAge: 300000 })
-    }).catch(() => null as GeolocationPosition | null)
+    const position = await getDevicePosition()
     if (!position) {
       failToCustom('Couldn’t get GPS location — switched to Custom. Grant location access in System Settings → Privacy & Security → Location Services.')
       return
     }
-    const { latitude, longitude, altitude } = position.coords
+    const { latitude, longitude, altitude } = position
     try {
       const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m`)
       if (!res.ok) throw new Error(`Open-Meteo ${res.status}`)

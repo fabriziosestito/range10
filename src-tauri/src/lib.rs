@@ -550,12 +550,17 @@ fn read_app_log(app: AppHandle) -> Result<String, String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(SessionState::default())
         .manage(VoiceState::default())
         .plugin(tauri_plugin_blec::init())
         .plugin(tauri_plugin_tts::init())
-        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_store::Builder::default().build());
+    // Native GPS for local weather; the plugin only supports iOS/Android.
+    // Desktop falls back to navigator.geolocation (and Custom mode on failure).
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_geolocation::init());
+    builder
         .plugin(
             tauri_plugin_log::Builder::default()
                 .level(log::LevelFilter::Info)
