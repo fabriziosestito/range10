@@ -19,6 +19,7 @@ import {
 } from '@fluentui/react-icons'
 
 import { ConnectDialog } from '@/components/ConnectDialog'
+import { DispersionView } from '@/components/DispersionView'
 import { MetricGrid } from '@/components/MetricGrid'
 import { SettingsDrawer, type ThemePreference } from '@/components/SettingsDrawer'
 import { darkTheme, lightTheme, themeColors } from '@/theme'
@@ -270,6 +271,7 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
+  const [dispersionMode, setDispersionMode] = useState<'carry' | 'total'>('carry')
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
   const [customTempF, setCustomTempF] = useState(DEFAULT_ATMOS.temp_f)
@@ -1048,7 +1050,13 @@ function App() {
           )}
 
           {page.id === 'view' && (
-            <EmptyState icon={<BoxRegular />} title="Shot view is coming soon" description="Trajectory, carry, and total distance will be visualized here from real R10 data." badge="In development" />
+            <div className="h-full min-h-0">
+              {history.length ? (
+                <DispersionView history={history} units={units} mode={dispersionMode} onModeChange={setDispersionMode} />
+              ) : (
+                <EmptyState icon={<BoxRegular />} title="No shots yet" description="Your dispersion map will appear here once you hit shots. Carry and total views are toggled above." />
+              )}
+            </div>
           )}
         </main>
 
