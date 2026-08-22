@@ -77,7 +77,7 @@ function MetricTile({ metric, shot, hasShot, units, editMode, isHidden, onToggle
       style={{ transform: CSS.Transform.toString(transform), transition }}
       {...(editMode ? { ...attributes, ...listeners } : {})}
       data-metric={metric.key}
-      className={`relative flex aspect-[5/4] min-w-0 select-none flex-col justify-between rounded-[6px] border border-[var(--colorNeutralStroke2)] bg-[var(--colorNeutralBackground2)] p-1.5 sm:p-2 ${isDragging ? 'z-10 shadow-lg' : ''} ${editMode ? 'cursor-grab border-dashed border-[var(--colorBrandStroke1)] touch-none' : ''} ${isHidden && editMode ? 'opacity-40' : ''}`}
+      className={`relative flex aspect-[5/4] min-w-0 select-none flex-col justify-between rounded-[8px] border border-[var(--colorNeutralStroke1)] bg-[var(--colorNeutralBackground3)] p-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.3)] sm:p-2 ${isDragging ? 'z-10 shadow-lg' : ''} ${editMode ? 'cursor-grab border-dashed border-[var(--colorBrandStroke1)] touch-none' : ''} ${isHidden && editMode ? 'opacity-40' : ''}`}
     >
       <p className="truncate text-[0.6rem] font-semibold uppercase tracking-[0.06em] text-[var(--colorNeutralForeground3)]" title={metric.label}>
         {metric.label}

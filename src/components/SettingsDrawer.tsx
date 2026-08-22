@@ -1,4 +1,4 @@
-import { Badge, Button, Drawer, DrawerBody, DrawerHeader, DrawerHeaderTitle, MessageBar, MessageBarBody, Radio, RadioGroup, Slider, Switch } from '@fluentui/react-components'
+import { Badge, Button, MessageBar, MessageBarBody, Radio, RadioGroup, Slider, Switch } from '@fluentui/react-components'
 import { AddRegular, ArrowClockwiseRegular, CompassNorthwestRegular, DismissRegular, DropRegular, GaugeRegular, LocationRegular, MountainTrailRegular, PauseRegular, PlayRegular, SubtractRegular, TemperatureRegular, WeatherSquallsRegular } from '@fluentui/react-icons'
 
 import { formatTeeDistance, type MetricKey } from '@/lib/format'
@@ -72,21 +72,14 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
   } = props
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
 
+  if (!open) return null
   return (
-    <Drawer
-      type="overlay"
-      modalType="non-modal"
-      position="end"
-      open={open}
-      onOpenChange={(_, data) => { if (!data.open) onClose() }}
-      style={{ ['--fui-Drawer--size' as string]: 'min(26rem, 85vw)', width: 'min(26rem, 85vw)' } as any}
-    >
-      <DrawerHeader className="pt-[max(0.5rem,env(safe-area-inset-top))]">
-        <DrawerHeaderTitle action={<Button appearance="subtle" aria-label="Close settings" icon={<DismissRegular />} onClick={onClose} />}>
-          Settings
-        </DrawerHeaderTitle>
-      </DrawerHeader>
-      <DrawerBody className="pb-[max(1rem,env(safe-area-inset-bottom))]">
+    <div className="fixed right-0 top-0 z-40 flex h-dvh w-[min(26rem,85vw)] flex-col overflow-hidden border-l border-[var(--colorNeutralStroke1)] bg-[var(--colorNeutralBackground1)] shadow-2xl">
+      <div className="flex items-center justify-between border-b border-[var(--colorNeutralStroke2)] px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+        <h2 className="text-base font-semibold">Settings</h2>
+        <Button appearance="subtle" aria-label="Close settings" icon={<DismissRegular />} onClick={onClose} />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <section className="flex items-center justify-between gap-3 border-b border-[var(--colorNeutralStroke2)] py-3.5">
           <div>
             <p className="text-sm font-semibold">Units</p>
@@ -263,8 +256,8 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
             {logCopyState && <span className="text-xs text-[var(--colorNeutralForeground3)]">{logCopyState}</span>}
           </div>
         </section>
-      </DrawerBody>
-    </Drawer>
+      </div>
+    </div>
   )
 }
 
