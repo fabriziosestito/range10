@@ -282,7 +282,6 @@ function App() {
   const [lastLocalPlace, setLastLocalPlace] = useState('')
   const [lastLocalAt, setLastLocalAt] = useState(0)
   const [weatherWarning, setWeatherWarning] = useState('')
-  const [weatherSource, setWeatherSource] = useState<'local' | 'custom' | 'defaults'>('local')
   const [shot, setShot] = useState<Shot>(initialShot)
   const [history, setHistory] = useState<Shot[]>([])
   const [enabledMetrics, setEnabledMetrics] = useState<Record<MetricKey, boolean>>(defaultEnabledMetrics)
@@ -477,11 +476,8 @@ function App() {
 
   useEffect(() => {
     if (!settingsLoaded) return
-    const source: 'local' | 'custom' | 'defaults' =
-      weatherMode === 'local' && lastLocalAtmos ? 'local' : weatherMode === 'custom' ? 'custom' : 'defaults'
-    setWeatherSource(source)
     if (isTauriRuntime()) void invoke('set_atmos', { atmos: effectiveAtmos }).catch(() => undefined)
-  }, [effectiveAtmos, lastLocalAtmos, settingsLoaded, weatherMode])
+  }, [effectiveAtmos, settingsLoaded])
 
   const fetchLocalWeather = useCallback(async () => {
     // On failure Local silently meaning defaults is confusing: switch to
@@ -964,13 +960,6 @@ function App() {
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-[var(--colorBrandBackground)] text-xs font-semibold text-[var(--colorNeutralForegroundOnBrand)]">10</div>
             <p className="truncate text-sm font-bold tracking-tight">range10</p>
-            {!statsExpanded && (
-              <Tooltip content={`${effectiveAtmos.temp_f.toFixed(0)}°F · ${effectiveAtmos.elevation_ft.toFixed(0)} ft · ${effectiveAtmos.wind_mph.toFixed(0)} mph · ${effectiveAtmos.rel_humidity.toFixed(0)}% · ${effectiveAtmos.pressure_inhg.toFixed(2)} inHg (${weatherSource})`} relationship="label">
-                <Badge appearance="tint" size="small" className="hidden sm:inline-flex">
-                  {effectiveAtmos.temp_f.toFixed(0)}°F · {weatherSource}
-                </Badge>
-              </Tooltip>
-            )}
           </div>
           <div className="flex items-center gap-1">
             {showDevTools && (
