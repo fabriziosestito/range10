@@ -22,6 +22,8 @@
 	<true/>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>range10 uses Bluetooth to connect to your Garmin R10.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>range10 uses your location to fetch local weather for carry distance calculations.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>

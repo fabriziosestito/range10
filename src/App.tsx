@@ -60,11 +60,14 @@ type AtmosphericData = {
 type SavedWeather = {
   mode?: WeatherMode
   custom_temp_f?: number
+  custom_elevation_ft?: number
   custom_wind_mph?: number
   custom_wind_dir?: number
   custom_humidity?: number
   custom_pressure?: number
   last_local_atmos?: AtmosphericData | null
+  last_local_place?: string
+  last_local_at?: number
 }
 
 type SavedPreferences = {
@@ -241,11 +244,14 @@ function App() {
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
   const [customTempF, setCustomTempF] = useState(DEFAULT_ATMOS.temp_f)
+  const [customElevationFt, setCustomElevationFt] = useState(DEFAULT_ATMOS.elevation_ft)
   const [customWindMph, setCustomWindMph] = useState(DEFAULT_ATMOS.wind_mph)
   const [customWindDir, setCustomWindDir] = useState(DEFAULT_ATMOS.wind_direction_deg)
   const [customHumidity, setCustomHumidity] = useState(DEFAULT_ATMOS.rel_humidity)
   const [customPressure, setCustomPressure] = useState(DEFAULT_ATMOS.pressure_inhg)
   const [lastLocalAtmos, setLastLocalAtmos] = useState<AtmosphericData | null>(null)
+  const [lastLocalPlace, setLastLocalPlace] = useState('')
+  const [lastLocalAt, setLastLocalAt] = useState(0)
   const [weatherWarning, setWeatherWarning] = useState('')
   const [weatherSource, setWeatherSource] = useState<'local' | 'custom' | 'defaults'>('local')
   const [shot, setShot] = useState<Shot>(initialShot)
@@ -381,11 +387,14 @@ function App() {
         if (saved.weather) {
           if (saved.weather.mode) setWeatherMode(saved.weather.mode)
           if (typeof saved.weather.custom_temp_f === 'number') setCustomTempF(saved.weather.custom_temp_f)
+          if (typeof saved.weather.custom_elevation_ft === 'number') setCustomElevationFt(saved.weather.custom_elevation_ft)
           if (typeof saved.weather.custom_wind_mph === 'number') setCustomWindMph(saved.weather.custom_wind_mph)
           if (typeof saved.weather.custom_wind_dir === 'number') setCustomWindDir(saved.weather.custom_wind_dir)
           if (typeof saved.weather.custom_humidity === 'number') setCustomHumidity(saved.weather.custom_humidity)
           if (typeof saved.weather.custom_pressure === 'number') setCustomPressure(saved.weather.custom_pressure)
           if (saved.weather.last_local_atmos) setLastLocalAtmos(saved.weather.last_local_atmos)
+          if (saved.weather.last_local_place) setLastLocalPlace(saved.weather.last_local_place)
+          if (typeof saved.weather.last_local_at === 'number') setLastLocalAt(saved.weather.last_local_at)
         }
       } finally {
         if (active) setSettingsLoaded(true)
@@ -398,11 +407,11 @@ function App() {
     if (!settingsLoaded || !isTauriRuntime()) return
     void settingsStore.set('preferences', {
       preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics,
-      weather: { mode: weatherMode, custom_temp_f: customTempF, custom_wind_mph: customWindMph, custom_wind_dir: customWindDir, custom_humidity: customHumidity, custom_pressure: customPressure, last_local_atmos: lastLocalAtmos },
+      weather: { mode: weatherMode, custom_temp_f: customTempF, custom_elevation_ft: customElevationFt, custom_wind_mph: customWindMph, custom_wind_dir: customWindDir, custom_humidity: customHumidity, custom_pressure: customPressure, last_local_atmos: lastLocalAtmos, last_local_place: lastLocalPlace, last_local_at: lastLocalAt },
     })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [customHumidity, customPressure, customTempF, customWindDir, customWindMph, enabledMetrics, hiddenMetrics, lastLocalAtmos, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled, weatherMode])
+  }, [customElevationFt, customHumidity, customPressure, customTempF, customWindDir, customWindMph, enabledMetrics, hiddenMetrics, lastLocalAt, lastLocalAtmos, lastLocalPlace, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled, weatherMode])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -424,10 +433,9 @@ function App() {
   const effectiveAtmos: AtmosphericData = useMemo(() => {
     if (weatherMode === 'local' && lastLocalAtmos) return lastLocalAtmos
     if (weatherMode === 'custom') {
-      const base = lastLocalAtmos ?? DEFAULT_ATMOS
       return {
         temp_f: customTempF,
-        elevation_ft: base.elevation_ft,
+        elevation_ft: customElevationFt,
         wind_mph: customWindMph,
         wind_direction_deg: customWindDir,
         wind_height_ft: 0,
@@ -436,7 +444,7 @@ function App() {
       }
     }
     return DEFAULT_ATMOS
-  }, [customHumidity, customPressure, customTempF, customWindDir, customWindMph, lastLocalAtmos, weatherMode])
+  }, [customElevationFt, customHumidity, customPressure, customTempF, customWindDir, customWindMph, lastLocalAtmos, weatherMode])
 
   useEffect(() => {
     if (!settingsLoaded) return
@@ -448,35 +456,17 @@ function App() {
 
   const fetchLocalWeather = useCallback(async () => {
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setWeatherWarning('Location unavailable — using custom defaults.')
+      setWeatherWarning('Location unavailable on this device — using defaults. Set Custom to adjust.')
       return
     }
-    let latitude: number | null = null
-    let longitude: number | null = null
-    let altitude: number | null = null
     const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 8000, maximumAge: 300000 })
+      navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, maximumAge: 300000 })
     }).catch(() => null as GeolocationPosition | null)
-    if (position) {
-      latitude = position.coords.latitude
-      longitude = position.coords.longitude
-      altitude = position.coords.altitude
-    } else {
-      // Fallback: IP-based geolocation so Local still works when permission denied (e.g. browser prompt dismissed or Tauri WebView without location entitlement)
-      try {
-        const ip = await fetch('https://ipapi.co/json/').then((r) => (r.ok ? r.json() : null)) as { latitude?: number; longitude?: number } | null
-        if (ip?.latitude && ip?.longitude) {
-          latitude = ip.latitude
-          longitude = ip.longitude
-        }
-      } catch {
-        // ignore
-      }
-    }
-    if (latitude == null || longitude == null) {
-      setWeatherWarning('Couldn’t get location — using custom defaults. Check location permission or connection.')
+    if (!position) {
+      setWeatherWarning('Couldn’t get GPS location — using defaults. Check location permission or set Custom.')
       return
     }
+    const { latitude, longitude, altitude } = position.coords
     try {
       const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_direction_10m`)
       if (!res.ok) throw new Error(`Open-Meteo ${res.status}`)
@@ -491,7 +481,7 @@ function App() {
       const pressureHpa = cur.surface_pressure ?? 1013
       const windKmh = cur.wind_speed_10m ?? 0
       const windDir = cur.wind_direction_10m ?? 0
-      const elevationM = (data as unknown as { elevation?: number }).elevation ?? altitude ?? 0
+      const elevationM = data.elevation ?? altitude ?? 0
       const elevationFt = typeof elevationM === 'number' ? elevationM * 3.28084 : 0
       const atmos: AtmosphericData = {
         temp_f: tempC * 9 / 5 + 32,
@@ -503,9 +493,11 @@ function App() {
         pressure_inhg: pressureHpa * 0.0295299830714,
       }
       setLastLocalAtmos(atmos)
+      setLastLocalPlace(`${latitude.toFixed(3)}, ${longitude.toFixed(3)}`)
+      setLastLocalAt(Date.now())
       setWeatherWarning('')
     } catch {
-      setWeatherWarning('Couldn’t reach Open-Meteo — using custom defaults. Check connection.')
+      setWeatherWarning('Couldn’t reach Open-Meteo — using defaults. Check connection.')
     }
   }, [])
 
@@ -517,18 +509,14 @@ function App() {
   }, [fetchLocalWeather, lastLocalAtmos, settingsLoaded, weatherMode])
 
   const handleWeatherModeChange = (mode: WeatherMode) => {
-    if (mode === 'custom' && lastLocalAtmos) {
-      setCustomTempF(lastLocalAtmos.temp_f)
-      setCustomWindMph(lastLocalAtmos.wind_mph)
-      setCustomWindDir(lastLocalAtmos.wind_direction_deg)
-      setCustomHumidity(lastLocalAtmos.rel_humidity)
-      setCustomPressure(lastLocalAtmos.pressure_inhg)
-    } else if (mode === 'custom' && !lastLocalAtmos) {
-      setCustomTempF(DEFAULT_ATMOS.temp_f)
-      setCustomWindMph(DEFAULT_ATMOS.wind_mph)
-      setCustomWindDir(DEFAULT_ATMOS.wind_direction_deg)
-      setCustomHumidity(DEFAULT_ATMOS.rel_humidity)
-      setCustomPressure(DEFAULT_ATMOS.pressure_inhg)
+    if (mode === 'custom') {
+      const base = lastLocalAtmos ?? DEFAULT_ATMOS
+      setCustomTempF(base.temp_f)
+      setCustomElevationFt(Math.min(5000, Math.max(0, base.elevation_ft)))
+      setCustomWindMph(base.wind_mph)
+      setCustomWindDir(base.wind_direction_deg)
+      setCustomHumidity(base.rel_humidity)
+      setCustomPressure(base.pressure_inhg)
     }
     if (mode === 'local') {
       setWeatherWarning('')
@@ -1075,11 +1063,14 @@ function App() {
         weatherMode={weatherMode}
         onWeatherModeChange={handleWeatherModeChange}
         lastLocalAtmos={lastLocalAtmos}
-        effectiveAtmos={effectiveAtmos}
+        lastLocalPlace={lastLocalPlace}
+        lastLocalAt={lastLocalAt}
         weatherWarning={weatherWarning}
         onRefreshLocal={() => void fetchLocalWeather()}
         customTempF={customTempF}
         onCustomTempFChange={setCustomTempF}
+        customElevationFt={customElevationFt}
+        onCustomElevationFtChange={setCustomElevationFt}
         customWindMph={customWindMph}
         onCustomWindMphChange={setCustomWindMph}
         customWindDir={customWindDir}

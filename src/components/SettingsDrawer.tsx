@@ -1,5 +1,5 @@
 import { Badge, Button, Drawer, DrawerBody, DrawerHeader, DrawerHeaderTitle, MessageBar, MessageBarBody, Radio, RadioGroup, Slider, Switch } from '@fluentui/react-components'
-import { AddRegular, ArrowClockwiseRegular, DismissRegular, PauseRegular, PlayRegular, SubtractRegular } from '@fluentui/react-icons'
+import { AddRegular, ArrowClockwiseRegular, CompassNorthwestRegular, DismissRegular, DropRegular, GaugeRegular, LocationRegular, MountainTrailRegular, PauseRegular, PlayRegular, SubtractRegular, TemperatureRegular, WeatherSquallsRegular } from '@fluentui/react-icons'
 
 import { formatTeeDistance, type MetricKey } from '@/lib/format'
 
@@ -41,11 +41,14 @@ type SettingsDrawerProps = {
   weatherMode: 'local' | 'custom'
   onWeatherModeChange: (mode: 'local' | 'custom') => void
   lastLocalAtmos: AtmosphericData | null
-  effectiveAtmos: AtmosphericData
+  lastLocalPlace: string
+  lastLocalAt: number
   weatherWarning: string
   onRefreshLocal: () => void
   customTempF: number
   onCustomTempFChange: (v: number) => void
+  customElevationFt: number
+  onCustomElevationFtChange: (v: number) => void
   customWindMph: number
   onCustomWindMphChange: (v: number) => void
   customWindDir: number
@@ -63,8 +66,8 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
     voiceEnabled, onVoiceEnabledChange, metricLabels, enabledMetrics, onToggleMetric,
     speechPreview, previewSpeaking, onTogglePreview,
     canCopyLogs, copyingLogs, logCopyState, onCopyLogs,
-    weatherMode, onWeatherModeChange, lastLocalAtmos, effectiveAtmos, weatherWarning, onRefreshLocal,
-    customTempF, onCustomTempFChange, customWindMph, onCustomWindMphChange, customWindDir, onCustomWindDirChange,
+    weatherMode, onWeatherModeChange, lastLocalAtmos, lastLocalPlace, lastLocalAt, weatherWarning, onRefreshLocal,
+    customTempF, onCustomTempFChange, customElevationFt, onCustomElevationFtChange, customWindMph, onCustomWindMphChange, customWindDir, onCustomWindDirChange,
     customHumidity, onCustomHumidityChange, customPressure, onCustomPressureChange,
   } = props
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
@@ -126,51 +129,86 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
               <MessageBarBody>{weatherWarning}</MessageBarBody>
             </MessageBar>
           )}
-          <div className="mt-2 grid gap-2 text-xs">
-            <div className="flex justify-between text-[var(--colorNeutralForeground3)]">
-              <span>Elevation</span>
-              <span className="tabular-nums">{effectiveAtmos.elevation_ft.toFixed(0)} ft · auto</span>
+          {weatherMode === 'local' && lastLocalAtmos && (
+            <div className="mt-2 rounded-lg border border-[var(--colorNeutralStroke2)] bg-[var(--colorNeutralBackground2)] p-3">
+              <div className="flex items-center gap-2 text-xs font-semibold">
+                <LocationRegular className="text-[var(--colorBrandForeground1)]" />
+                <span>Your location</span>
+                <span className="ml-auto font-normal tabular-nums text-[var(--colorNeutralForeground3)]">
+                  {lastLocalPlace}{lastLocalAt ? ` · ${new Date(lastLocalAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                </span>
+              </div>
+              <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs tabular-nums text-[var(--colorNeutralForeground3)]">
+                <span>{lastLocalAtmos.temp_f.toFixed(0)}°F</span>
+                <span>{lastLocalAtmos.wind_mph.toFixed(0)} mph @ {lastLocalAtmos.wind_direction_deg.toFixed(0)}°</span>
+                <span>{lastLocalAtmos.rel_humidity.toFixed(0)}%</span>
+                <span>{lastLocalAtmos.elevation_ft.toFixed(0)} ft</span>
+                <span>{lastLocalAtmos.pressure_inhg.toFixed(2)} inHg</span>
+              </div>
             </div>
-            {lastLocalAtmos && weatherMode === 'local' && (
-              <div className="flex justify-between text-[var(--colorNeutralForeground3)]">
-                <span>Local</span>
-                <span className="tabular-nums">{lastLocalAtmos.temp_f.toFixed(0)}°F · {lastLocalAtmos.wind_mph.toFixed(0)} mph · {lastLocalAtmos.rel_humidity.toFixed(0)}% · {lastLocalAtmos.pressure_inhg.toFixed(2)} inHg</span>
-              </div>
-            )}
-          </div>
+          )}
           {weatherMode === 'custom' && (
-            <div className="mt-3 grid gap-4">
-              <div className="w-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Temperature {(((customTempF - 32) * 5 / 9).toFixed(0))}°C / {customTempF.toFixed(0)}°F</span>
-                </div>
-                <Slider className="w-full" style={{ width: '100%' }} min={14} max={131} step={1} value={customTempF} onChange={(_, data) => onCustomTempFChange(data.value)} aria-label="Custom temperature" />
-                <div className="flex justify-between text-[0.62rem] text-[var(--colorNeutralForeground3)]"><span>-10°C</span><span>55°C</span></div>
-              </div>
-              <div className="w-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Wind {customWindMph.toFixed(0)} mph</span>
-                </div>
-                <Slider className="w-full" style={{ width: '100%' }} min={0} max={50} step={1} value={customWindMph} onChange={(_, data) => onCustomWindMphChange(data.value)} aria-label="Custom wind speed" />
-              </div>
-              <div className="w-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Wind dir {customWindDir.toFixed(0)}°</span>
-                </div>
-                <Slider className="w-full" style={{ width: '100%' }} min={0} max={359} step={1} value={customWindDir} onChange={(_, data) => onCustomWindDirChange(data.value)} aria-label="Custom wind direction" />
-              </div>
-              <div className="w-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Humidity {customHumidity.toFixed(0)}%</span>
-                </div>
-                <Slider className="w-full" style={{ width: '100%' }} min={0} max={100} step={1} value={customHumidity} onChange={(_, data) => onCustomHumidityChange(data.value)} aria-label="Custom humidity" />
-              </div>
-              <div className="w-full">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium">Pressure {customPressure.toFixed(2)} inHg</span>
-                </div>
-                <Slider className="w-full" style={{ width: '100%' }} min={28} max={32} step={0.05} value={customPressure} onChange={(_, data) => onCustomPressureChange(data.value)} aria-label="Custom pressure" />
-              </div>
+            <div className="mt-3 grid gap-1">
+              <WeatherSliderRow
+                icon={<MountainTrailRegular />}
+                label="Altitude"
+                valueText={`${customElevationFt.toFixed(0)} ft`}
+                min={0}
+                max={5000}
+                step={50}
+                value={customElevationFt}
+                onChange={onCustomElevationFtChange}
+              />
+              <WeatherSliderRow
+                icon={<DropRegular />}
+                label="Relative Humidity"
+                valueText={`${customHumidity.toFixed(0)} %`}
+                min={0}
+                max={100}
+                step={1}
+                value={customHumidity}
+                onChange={onCustomHumidityChange}
+              />
+              <WeatherSliderRow
+                icon={<TemperatureRegular />}
+                label="Temperature"
+                valueText={`${customTempF.toFixed(0)}°F / ${(((customTempF - 32) * 5) / 9).toFixed(0)}°C`}
+                min={14}
+                max={131}
+                step={1}
+                value={customTempF}
+                onChange={onCustomTempFChange}
+              />
+              <WeatherSliderRow
+                icon={<WeatherSquallsRegular />}
+                label="Wind"
+                valueText={`${customWindMph.toFixed(0)} mph`}
+                min={0}
+                max={50}
+                step={1}
+                value={customWindMph}
+                onChange={onCustomWindMphChange}
+              />
+              <WeatherSliderRow
+                icon={<CompassNorthwestRegular />}
+                label="Wind Direction"
+                valueText={`${customWindDir.toFixed(0)}°`}
+                min={0}
+                max={359}
+                step={1}
+                value={customWindDir}
+                onChange={onCustomWindDirChange}
+              />
+              <WeatherSliderRow
+                icon={<GaugeRegular />}
+                label="Pressure"
+                valueText={`${customPressure.toFixed(2)} inHg`}
+                min={28}
+                max={32}
+                step={0.05}
+                value={customPressure}
+                onChange={onCustomPressureChange}
+              />
             </div>
           )}
         </section>
@@ -220,5 +258,36 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
         </section>
       </DrawerBody>
     </Drawer>
+  )
+}
+
+function WeatherSliderRow({ icon, label, valueText, min, max, step, value, onChange }: {
+  icon: React.ReactNode
+  label: string
+  valueText: string
+  min: number
+  max: number
+  step: number
+  value: number
+  onChange: (value: number) => void
+}) {
+  return (
+    <div className="w-full border-b border-[var(--colorNeutralStroke2)] py-2 last:border-b-0">
+      <div className="flex items-center gap-2">
+        <span className="flex items-center text-base text-[var(--colorNeutralForeground3)]">{icon}</span>
+        <span className="text-sm">{label}</span>
+        <span className="ml-auto text-sm font-semibold tabular-nums">{valueText}</span>
+      </div>
+      <Slider
+        className="!w-full"
+        style={{ width: '100%' }}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(_, data) => onChange(data.value)}
+        aria-label={label}
+      />
+    </div>
   )
 }
