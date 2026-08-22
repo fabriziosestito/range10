@@ -516,12 +516,14 @@ function App() {
     }
   }, [lastLocalAtmos])
 
+  // Always refresh local weather once at startup: cached last_local_atmos is
+  // only a seed/fallback, never a silent stale data source.
+  const weatherFetchedOnceRef = useRef(false)
   useEffect(() => {
-    if (!settingsLoaded) return
-    if (weatherMode !== 'local') return
-    if (lastLocalAtmos) return
-    void fetchLocalWeather()
-  }, [fetchLocalWeather, lastLocalAtmos, settingsLoaded, weatherMode])
+    if (!settingsLoaded || weatherFetchedOnceRef.current) return
+    weatherFetchedOnceRef.current = true
+    if (weatherMode === 'local') void fetchLocalWeather()
+  }, [fetchLocalWeather, settingsLoaded, weatherMode])
 
   const handleWeatherModeChange = (mode: WeatherMode) => {
     if (mode === 'custom') {
@@ -535,7 +537,7 @@ function App() {
     }
     if (mode === 'local') {
       setWeatherWarning('')
-      if (!lastLocalAtmos) void fetchLocalWeather()
+      void fetchLocalWeather()
     }
     setWeatherMode(mode)
   }
