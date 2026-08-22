@@ -455,15 +455,29 @@ function App() {
   }, [effectiveAtmos, lastLocalAtmos, settingsLoaded, weatherMode])
 
   const fetchLocalWeather = useCallback(async () => {
+    // On failure Local silently meaning defaults is confusing: switch to
+    // Custom (seeded from last local or defaults) so the UI reflects what
+    // the flight model actually uses.
+    const failToCustom = (message: string) => {
+      setWeatherWarning(message)
+      const base = lastLocalAtmos ?? DEFAULT_ATMOS
+      setCustomTempF(base.temp_f)
+      setCustomElevationFt(Math.min(5000, Math.max(0, base.elevation_ft)))
+      setCustomWindMph(base.wind_mph)
+      setCustomWindDir(base.wind_direction_deg)
+      setCustomHumidity(base.rel_humidity)
+      setCustomPressure(base.pressure_inhg)
+      setWeatherMode('custom')
+    }
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      setWeatherWarning('Location unavailable on this device — using defaults. Set Custom to adjust.')
+      failToCustom('Location unavailable on this device — switched to Custom.')
       return
     }
     const position = await new Promise<GeolocationPosition>((resolve, reject) => {
       navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000, maximumAge: 300000 })
     }).catch(() => null as GeolocationPosition | null)
     if (!position) {
-      setWeatherWarning('Couldn’t get GPS location — using defaults. Check location permission or set Custom.')
+      failToCustom('Couldn’t get GPS location — switched to Custom. Grant location access in System Settings → Privacy & Security → Location Services.')
       return
     }
     const { latitude, longitude, altitude } = position.coords
@@ -496,10 +510,11 @@ function App() {
       setLastLocalPlace(`${latitude.toFixed(3)}, ${longitude.toFixed(3)}`)
       setLastLocalAt(Date.now())
       setWeatherWarning('')
+      setWeatherMode('local')
     } catch {
-      setWeatherWarning('Couldn’t reach Open-Meteo — using defaults. Check connection.')
+      failToCustom('Couldn’t reach Open-Meteo — switched to Custom. Check connection.')
     }
-  }, [])
+  }, [lastLocalAtmos])
 
   useEffect(() => {
     if (!settingsLoaded) return
