@@ -73,7 +73,14 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
 
   return (
-    <Drawer type="overlay" modalType="non-modal" position="end" open={open} onOpenChange={(_, data) => { if (!data.open) onClose() }} style={{ width: 'min(26rem, 100vw)' }}>
+    <Drawer
+      type="overlay"
+      modalType="non-modal"
+      position="end"
+      open={open}
+      onOpenChange={(_, data) => { if (!data.open) onClose() }}
+      style={{ ['--fui-Drawer--size' as string]: 'min(26rem, 85vw)', width: 'min(26rem, 85vw)' } as any}
+    >
       <DrawerHeader className="pt-[max(0.5rem,env(safe-area-inset-top))]">
         <DrawerHeaderTitle action={<Button appearance="subtle" aria-label="Close settings" icon={<DismissRegular />} onClick={onClose} />}>
           Settings
