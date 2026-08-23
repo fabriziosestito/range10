@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { calculateSwingTimes, calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMapDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
+import { trajectoryForShot } from './trajectory'
 
 const shot: Shot = {
   id: 1,
@@ -146,6 +147,25 @@ describe('formatMapDistance', () => {
 
   it('labels the same raw map scale in yards', () => {
     expect(formatMapDistance(80, 'imperial')).toBe('80 yd')
+  })
+})
+
+describe('trajectoryForShot', () => {
+  it('keeps measured carry and total as meter endpoints', () => {
+    const trajectory = trajectoryForShot(shot, 4, 2)
+    const carry = trajectory.points[trajectory.carryIndex]
+    const total = trajectory.points[trajectory.points.length - 1]
+
+    expect(carry.z).toBeCloseTo(yardsToMeters(shot.carry), 5)
+    expect(carry.x).toBeCloseTo(yardsToMeters(shot.carryOffline), 5)
+    expect(total.z).toBeCloseTo(yardsToMeters(shot.total), 5)
+    expect(total.x).toBeCloseTo(yardsToMeters(shot.offline), 5)
+  })
+
+  it('places the apex above the flight midpoint', () => {
+    const trajectory = trajectoryForShot(shot, 10, 2)
+    const flight = trajectory.points.slice(0, trajectory.carryIndex + 1)
+    expect(Math.max(...flight.map((point) => point.y))).toBeCloseTo(yardsToMeters(shot.apex), 5)
   })
 })
 

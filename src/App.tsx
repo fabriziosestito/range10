@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { LazyStore } from '@tauri-apps/plugin-store'
@@ -192,6 +192,8 @@ function normalizeMetricOrder(saved: StatMetricKey[] | undefined, pinned?: StatM
 
 const showDevTools = import.meta.env.DEV || import.meta.env.VITE_DEV_TOOLS === '1'
 
+const ThreeRangeView = lazy(() => import('@/components/ThreeRangeView').then(({ ThreeRangeView: view }) => ({ default: view })))
+
 type DevicePosition = { latitude: number; longitude: number; altitude: number | null }
 
 // Native GPS via the Tauri geolocation plugin (iOS/Android). On desktop or in
@@ -275,6 +277,7 @@ function App() {
   const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [dispersionMode, setDispersionMode] = useState<'carry' | 'total'>('carry')
+  const [viewMode, setViewMode] = useState<'map' | '3d'>('map')
   const [distanceScale, setDistanceScale] = useState<number | null>(null)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
@@ -1053,15 +1056,25 @@ function App() {
           )}
 
           {page.id === 'view' && (
-            <div className="h-full min-h-0">
+            <div className="flex h-full min-h-0 flex-col gap-2">
               {history.length ? (
-                <DispersionView
-                  history={history}
-                  units={units}
-                  mode={dispersionMode}
-                  distanceScale={distanceScale}
-                  onModeChange={setDispersionMode}
-                />
+                <>
+                  <div className="flex shrink-0 justify-end">
+                    <Select size="small" aria-label="View mode" value={viewMode} onChange={(_, data) => setViewMode(data.value as 'map' | '3d')}>
+                      <option value="map">2D Map</option>
+                      <option value="3d">3D Range</option>
+                    </Select>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    {viewMode === '3d' ? (
+                      <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--colorNeutralForeground3)]">Loading 3D range...</div>}>
+                        <ThreeRangeView history={history} units={units} distanceScale={distanceScale} />
+                      </Suspense>
+                    ) : (
+                      <DispersionView history={history} units={units} mode={dispersionMode} distanceScale={distanceScale} onModeChange={setDispersionMode} />
+                    )}
+                  </div>
+                </>
               ) : (
                 <EmptyState icon={<BoxRegular />} title="No shots yet" description="Your dispersion map will appear here once you hit shots. Carry and total views are toggled above." />
               )}

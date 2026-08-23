@@ -27,7 +27,7 @@ system monospace stack.
 - tauri-plugin-tts: Copyright (c) 2025 Affex Team.
 - tenover: Copyright (c) 2026 Eric Thill.
 - libgolf (flight model): Copyright (c) gdifiore, licensed under
-  [GPL-3.0-only](third-party/licenses/GPL-3.0.txt). The Rust port lives in
+  [GPL-3.0-only](third-party/licenses/GPL-3.txt). The Rust port lives in
   `crate/libgolf-rs/` (LICENSE and attribution in `crate/libgolf-rs/src/lib.rs`);
   the in-air physics is based on Prof. Alan M. Nathan's trajectory model
   (University of Illinois).
@@ -39,3 +39,18 @@ permissive licenses. Common license texts are available under
 [Apache-2.0](third-party/licenses/Apache-2.0.txt). Complete package-specific
 license metadata and notices remain available from each upstream source
 package.
+
+## OpenGolfSim FUSE
+
+`@opengolfsim/fuse` is used from:
+
+https://github.com/OpenGolfSim/fuse/tree/40837e1ff9910240688318c240276a4ab845c686
+
+FUSE is Copyright (c) 2026 OpenGolfSim LLC and is licensed under the PolyForm
+Noncommercial License 1.0.0:
+
+https://polyformproject.org/licenses/noncommercial/1.0.0/
+
+Required notice:
+
+Copyright (c) 2026 OpenGolfSim LLC

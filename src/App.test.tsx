@@ -68,6 +68,7 @@ describe('App', () => {
     const map = screen.getByLabelText('Dispersion map')
     expect(within(map).getByText('50 yd')).toBeInTheDocument()
     expect(within(map).getByText('60 yd')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'View mode' })).toHaveValue('map')
 
     expect(screen.getByRole('combobox', { name: 'Map scale' })).toHaveValue('auto')
     await user.click(screen.getByRole('combobox', { name: 'Map scale' }))
