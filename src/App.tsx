@@ -5,7 +5,7 @@ import { LazyStore } from '@tauri-apps/plugin-store'
 import { checkPermissions, connect as connectBle, disconnect as disconnectBle, startScan, stopScan, type BleDevice } from '@mnlphlp/plugin-blec'
 import { checkPermissions as checkGeoPermissions, getCurrentPosition, requestPermissions as requestGeoPermissions } from '@tauri-apps/plugin-geolocation'
 import { isSpeaking, speak, stop } from 'tauri-plugin-tts-api'
-import { Badge, Button, FluentProvider, Spinner, Tab, TabList, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, ToggleButton, Tooltip } from '@fluentui/react-components'
+import { Badge, Button, FluentProvider, Select, Spinner, Tab, TabList, Table, TableBody, TableCell, TableHeader, TableHeaderCell, TableRow, ToggleButton } from '@fluentui/react-components'
 import {
   ArrowMaximizeRegular,
   ArrowMinimizeRegular,
@@ -131,6 +131,7 @@ const TEE_DISTANCE_STEP = 0.1
 
 const initialShot: Shot = {
   id: 0,
+  club: 'Driver',
   clubSpeed: 0,
   path: 0,
   face: 0,
@@ -157,6 +158,7 @@ const initialShot: Shot = {
 
 const previewShot: Shot = {
   id: 1,
+  club: 'Driver',
   clubSpeed: 98.4,
   path: 1.2,
   face: 0.4,
@@ -225,6 +227,7 @@ function jittered(base: number, range: number) {
 function mockShot(id: number): Shot {
   return {
     id,
+    club: 'Driver',
     clubSpeed: jittered(previewShot.clubSpeed, 3),
     path: jittered(previewShot.path, 1.5),
     face: jittered(previewShot.face, 1.5),
@@ -272,6 +275,7 @@ function App() {
   const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [dispersionMode, setDispersionMode] = useState<'carry' | 'total'>('carry')
+  const [distanceScale, setDistanceScale] = useState<number | null>(null)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
   const [customTempF, setCustomTempF] = useState(DEFAULT_ATMOS.temp_f)
@@ -593,6 +597,7 @@ function App() {
       const nextShot: Shot = withMetrics({
         ...initialShot,
         id: payload.shot_id,
+        club: 'Driver',
         clubSpeed: (payload.club?.club_head_speed ?? 0) * 2.23694,
         path: payload.club?.path_angle ?? 0,
         face: payload.club?.face_angle ?? 0,
@@ -975,9 +980,7 @@ function App() {
           </div>
           <div className="flex items-center gap-1">
             {showDevTools && (
-              <Tooltip content="Simulate R10 shot" relationship="label">
-                <Button size="small" appearance="subtle" icon={simulating ? <Spinner size="extra-tiny" /> : <FlashRegular />} onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" />
-              </Tooltip>
+              <Button title="Simulate R10 shot" size="small" appearance="subtle" icon={simulating ? <Spinner size="extra-tiny" /> : <FlashRegular />} onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" />
             )}
             <Button
               size="small"
@@ -1052,7 +1055,13 @@ function App() {
           {page.id === 'view' && (
             <div className="h-full min-h-0">
               {history.length ? (
-                <DispersionView history={history} units={units} mode={dispersionMode} onModeChange={setDispersionMode} />
+                <DispersionView
+                  history={history}
+                  units={units}
+                  mode={dispersionMode}
+                  distanceScale={distanceScale}
+                  onModeChange={setDispersionMode}
+                />
               ) : (
                 <EmptyState icon={<BoxRegular />} title="No shots yet" description="Your dispersion map will appear here once you hit shots. Carry and total views are toggled above." />
               )}
@@ -1079,6 +1088,20 @@ function App() {
                 <ToggleButton size="small" appearance="subtle" checked={editMode} icon={<EditRegular />} onClick={() => setEditMode((value) => !value)} aria-label="Edit metric layout" />
                 <Button size="small" appearance="subtle" icon={<ArrowMaximizeRegular />} onClick={() => setStatsExpanded(true)} aria-label="Expand stats" />
               </>
+            )}
+            {page.id === 'view' && (
+              <Select
+                size="small"
+                aria-label="Map scale"
+                value={distanceScale === null ? 'auto' : String(distanceScale)}
+                onChange={(_, data) => setDistanceScale(data.value === 'auto' ? null : Number(data.value))}
+              >
+                <option value="auto">Auto</option>
+                {(units === 'metric' ? [50, 100, 150, 200, 250] : [100, 150, 200, 250]).map((scale) => {
+                  const text = `${scale} ${units === 'imperial' ? 'yd' : 'm'}`
+                  return <option key={scale} value={String(scale)}>{text}</option>
+                })}
+              </Select>
             )}
           </div>
         </footer>

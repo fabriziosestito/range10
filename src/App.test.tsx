@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import App from './App'
@@ -63,6 +63,23 @@ describe('App', () => {
     expect(screen.getByLabelText('Dispersion mode')).toBeInTheDocument()
     expect(screen.getByText('Carry')).toBeInTheDocument()
     expect(screen.getByText('Total')).toBeInTheDocument()
-    expect(screen.getByLabelText('Dispersion map')).toBeInTheDocument()
+    expect(screen.getByText('Driver')).toBeInTheDocument()
+    expect(screen.queryByText('Drive')).not.toBeInTheDocument()
+    const map = screen.getByLabelText('Dispersion map')
+    expect(within(map).getByText('50 yd')).toBeInTheDocument()
+    expect(within(map).getByText('60 yd')).toBeInTheDocument()
+
+    expect(screen.getByRole('combobox', { name: 'Map scale' })).toHaveValue('auto')
+    await user.click(screen.getByRole('combobox', { name: 'Map scale' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Map scale' }), '150')
+    expect(screen.getByRole('combobox', { name: 'Map scale' })).toHaveValue('150')
+
+    await user.click(screen.getByRole('button', { name: 'Open settings' }))
+    await user.click(screen.getByRole('radio', { name: 'Metric' }))
+    expect(within(map).getByText('50 m')).toBeInTheDocument()
+    expect(within(map).getByText('60 m')).toBeInTheDocument()
+    expect(within(map).getByText('100 m')).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Map scale' })).toHaveValue('150')
+    expect(map.querySelector('title')?.textContent).toContain('137 m')
   })
 })

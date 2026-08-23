@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { calculateSwingTimes, calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
+import { calculateSwingTimes, calculateTempo, connectionTitle, displayDeviceName, errorMessage, faceToPathOf, formatDistance, formatMapDistance, formatMetric, formatTeeDistance, formatTempo, highlightParts, smashFactorOf, statMetrics, withMetrics, yardsToMeters, type Shot } from './format'
 
 const shot: Shot = {
   id: 1,
+  club: 'Driver',
   clubSpeed: 98.4,
   path: 1.2,
   face: 0.4,
@@ -134,6 +135,17 @@ describe('yardsToMeters', () => {
   it('maps the range endpoints to 1.8–2.4 m', () => {
     expect(yardsToMeters(2.0)).toBeCloseTo(1.8, 1)
     expect(yardsToMeters(2.6)).toBeCloseTo(2.4, 1)
+  })
+})
+
+describe('formatMapDistance', () => {
+  it('keeps clean metric grid labels without fractional values', () => {
+    expect(formatMapDistance(50, 'metric')).toBe('50 m')
+    expect(formatMapDistance(100, 'metric')).toBe('100 m')
+  })
+
+  it('labels the same raw map scale in yards', () => {
+    expect(formatMapDistance(80, 'imperial')).toBe('80 yd')
   })
 })
 

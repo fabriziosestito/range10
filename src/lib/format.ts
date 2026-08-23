@@ -4,6 +4,7 @@ export type MetricKey = 'clubSpeed' | 'path' | 'face' | 'attack' | 'tempo' | 'la
 
 export type Shot = {
   id: number
+  club: string
   clubSpeed: number
   path: number
   face: number
@@ -72,6 +73,13 @@ export function formatDistance(yards: number, units: 'imperial' | 'metric') {
   const value = units === 'imperial' ? yards : yardsToMeters(yards)
   const unit = units === 'imperial' ? 'yd' : 'm'
   return `${value.toFixed(1)} ${unit}`
+}
+
+// The dispersion map passes values already expressed in its active unit. Keep
+// labels clean and integer-based so metric grid lines stay at 50, 100, 150.
+export function formatMapDistance(distance: number, units: 'imperial' | 'metric') {
+  const unit = units === 'imperial' ? 'yd' : 'm'
+  return `${distance.toFixed(0)} ${unit}`
 }
 
 export function formatTeeDistance(yards: number, units: 'imperial' | 'metric') {
@@ -212,9 +220,11 @@ function formatSmash(value: number) {
   return value.toFixed(2)
 }
 
-const distance = (key: keyof Shot): StatMetric['value'] => (shot) => shot[key]
-const degrees = (key: keyof Shot): StatMetric['value'] => (shot) => shot[key]
-const speed = (key: keyof Shot): StatMetric['value'] => (shot) => shot[key]
+type NumericShotKey = Exclude<keyof Shot, 'club'>
+
+const distance = (key: NumericShotKey): StatMetric['value'] => (shot) => shot[key]
+const degrees = (key: NumericShotKey): StatMetric['value'] => (shot) => shot[key]
+const speed = (key: NumericShotKey): StatMetric['value'] => (shot) => shot[key]
 
 export const statMetrics: StatMetric[] = [
   { key: 'carry', label: 'Carry Distance', kind: 'distance', value: distance('carry'), format: (v, u) => formatDistance(v, u) },
