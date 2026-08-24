@@ -2,11 +2,16 @@ import { Select } from '@fluentui/react-components'
 import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
-import { FuseRenderer } from '@opengolfsim/fuse'
+import { CourseLight, FuseRenderer, MeshLoader, YardageLinesMaterial } from '@opengolfsim/fuse'
 
 import { clubColorFor } from '@/components/DispersionView'
 import { yardsToMeters, type Shot } from '@/lib/format'
 import { trajectoryForShot, type ShotTrajectory, type TrajectoryPoint } from '@/lib/trajectory'
+
+const mountainModelUrl = '/fuse-range/models/rangeMtns.glb'
+const bagstandModelUrl = '/fuse-range/models/bagstand.glb'
+const fairwayTextureUrl = '/fuse-range/textures/gen_fairway_tex.png'
+const fairwayMapUrl = '/fuse-range/textures/gen_fairway_map.png'
 
 type TracerMode = 'off' | 'selected' | 'all'
 
@@ -19,60 +24,28 @@ type ThreeRangeViewProps = {
 type ShotObjects = {
   shot: Shot
   trajectory: ShotTrajectory
-  line: THREE.Line
+  line: THREE.Group
   endpoint: THREE.Mesh
 }
-
-const sceneWidth = 90
 
 function pointVector(point: TrajectoryPoint) {
   return new THREE.Vector3(point.x, point.y, point.z)
 }
 
-function createRangeLine(points: THREE.Vector3[], color: string, opacity: number, width = 1) {
-  const geometry = new THREE.BufferGeometry().setFromPoints(points)
-  const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity, linewidth: width })
-  return new THREE.Line(geometry, material)
-}
-
-function addDistanceMarks(scene: THREE.Scene, maxDepth: number) {
-  const marks: THREE.Line[] = []
-  for (let distance = 50; distance <= maxDepth; distance += 50) {
-    const line = createRangeLine([
-      new THREE.Vector3(-sceneWidth / 2, 0.025, distance),
-      new THREE.Vector3(sceneWidth / 2, 0.025, distance),
-    ], '#d7f2d9', 0.18)
-    scene.add(line)
-    marks.push(line)
-  }
-  return marks
-}
-
-function addRangeSurface(scene: THREE.Scene, maxDepth: number) {
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(sceneWidth, maxDepth + 40).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: '#183b29', roughness: 1 }),
+function createTracer(points: THREE.Vector3[], color: string, opacity: number) {
+  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal', 0.2)
+  const group = new THREE.Group()
+  const glow = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, Math.max(24, points.length * 2), 0.22, 8, false),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: opacity * 0.22, depthWrite: false }),
   )
-  ground.position.z = (maxDepth + 40) / 2
-  ground.receiveShadow = true
-  scene.add(ground)
-
-  const fairway = new THREE.Mesh(
-    new THREE.PlaneGeometry(40, maxDepth + 40).rotateX(-Math.PI / 2),
-    new THREE.MeshStandardMaterial({ color: '#356b43', roughness: 1 }),
+  const core = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, Math.max(24, points.length * 2), 0.08, 6, false),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthWrite: false }),
   )
-  fairway.position.y = 0.01
-  fairway.position.z = (maxDepth + 40) / 2
-  fairway.receiveShadow = true
-  scene.add(fairway)
-
-  const targetLine = createRangeLine([
-    new THREE.Vector3(0, 0.03, 0),
-    new THREE.Vector3(0, 0.03, maxDepth),
-  ], '#effff0', 0.45)
-  scene.add(targetLine)
-
-  return [ground, fairway, targetLine]
+  group.add(glow, core)
+  group.userData.tracerMaterials = [glow.material, core.material]
+  return group
 }
 
 export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeViewProps) {
@@ -87,6 +60,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
   }, [history, selectedShotId])
 
   useEffect(() => {
+    setError('')
     const container = containerRef.current
     const canvas = canvasRef.current
     if (!container || !canvas) return
@@ -104,35 +78,94 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
       if (!webgl) throw new Error('WebGL is not available')
 
       const trajectories = history.map((shot) => ({ shot, trajectory: trajectoryForShot(shot) }))
-      const autoDepth = Math.max(120, Math.ceil(Math.max(...trajectories.map(({ trajectory }) => trajectory.totalDistance), 100) * 1.15 / 25) * 25)
-      const maxDepth = distanceScale === null
-        ? autoDepth
-        : units === 'imperial' ? yardsToMeters(distanceScale) : distanceScale
       const scene = new THREE.Scene()
-      scene.background = new THREE.Color('#91b7bf')
-      scene.fog = new THREE.Fog('#91b7bf', maxDepth * 0.55, maxDepth * 1.8)
-      const camera = new THREE.PerspectiveCamera(42, 1, 0.1, Math.max(1000, maxDepth * 2))
-      camera.position.set(18, 11, -22)
-      camera.lookAt(0, 2, maxDepth * 0.45)
+      const skyColor = new THREE.Color('#abd0db')
+      const fogColor = new THREE.Color('#9bb0b7')
+      scene.background = skyColor
+      const fog = new THREE.Fog(fogColor, 160, 1000)
+      scene.fog = fog
+      const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 3000)
+      camera.position.set(0, 7, -20)
+      camera.lookAt(0, 2, 200)
 
       renderer = new FuseRenderer({ canvas, container, renderMode: 'webgl', adaptive: true, antialias: true })
-      renderer.renderer.setClearColor('#91b7bf')
+      const lightGroup = new CourseLight({
+        color: new THREE.Color('#fcfae9'),
+        ambient: { enabled: true, intensity: 1.3 },
+        directional: { enabled: true, intensity: 1.3 },
+      })
+      scene.add(lightGroup)
+      sceneObjects.push(lightGroup)
 
-      const ambient = new THREE.HemisphereLight('#e8fbff', '#173423', 1.8)
-      const sun = new THREE.DirectionalLight('#fff4d6', 2.2)
-      sun.position.set(-40, 80, -30)
-      sun.castShadow = true
-      scene.add(ambient, sun)
-      sceneObjects.push(ambient, sun)
-      sceneObjects.push(...addRangeSurface(scene, maxDepth))
-      sceneObjects.push(...addDistanceMarks(scene, maxDepth))
+      // Keep the example's five-meter texture tiles, but push the ground well
+      // beyond the fog and camera limits so the range has no visible edge.
+      const rangeWidth = 5000
+      const rangeHeight = 6000
+      const grassScale = rangeWidth / 5
+      const textureLoader = new THREE.TextureLoader()
+      const grassTexture = textureLoader.load(fairwayTextureUrl)
+      grassTexture.wrapS = THREE.RepeatWrapping
+      grassTexture.wrapT = THREE.RepeatWrapping
+      grassTexture.repeat.set(grassScale, rangeHeight / 5)
+      grassTexture.colorSpace = THREE.SRGBColorSpace
+      grassTexture.anisotropy = renderer.getMaxAnisotropy()
+      const grassNormalMap = textureLoader.load(fairwayMapUrl)
+      grassNormalMap.wrapS = THREE.RepeatWrapping
+      grassNormalMap.wrapT = THREE.RepeatWrapping
+      grassNormalMap.repeat.set(grassScale, rangeHeight / 5)
+      grassNormalMap.colorSpace = THREE.SRGBColorSpace
+      grassNormalMap.anisotropy = renderer.getMaxAnisotropy()
+
+      const ground = new THREE.Mesh(
+        new THREE.PlaneGeometry(rangeWidth, rangeHeight, 100, 120),
+        new THREE.MeshStandardMaterial({
+          name: 'floor',
+          map: grassTexture,
+          normalMap: grassNormalMap,
+          color: new THREE.Color('#fce3ff'),
+          roughness: 1,
+          metalness: 0,
+        }),
+      )
+      ground.rotation.x = -Math.PI / 2
+      ground.position.z = 2800
+      ground.receiveShadow = true
+      ground.userData.surface = 'fairway'
+      scene.add(ground)
+      sceneObjects.push(ground)
+
+      const groundLines = ground.clone()
+      // Keep the transparent overlay clear of the source plane to avoid
+      // depth fighting when the camera moves.
+      groundLines.position.y = 0.05
+      scene.add(groundLines)
+      sceneObjects.push(groundLines)
+
+      const distances = [50, 100, 150, 200, 250, 300].map((value) => units === 'imperial' ? yardsToMeters(value) : value)
+      const yardageLines = new YardageLinesMaterial(
+        groundLines,
+        new THREE.Vector3(0, 0, 0),
+        new THREE.Vector3(0, 0, 200),
+        distances,
+        {
+          lineWidth: 0.8,
+          lineLength: 70,
+          maxTextureSize: renderer.getMaxTextureSize(),
+          labels: [50, 100, 150, 200, 250, 300],
+          lineColor: [1, 1, 1, 0.9],
+          feather: 0.12,
+          labelSize: [8, 4],
+          labelGap: 0.8,
+          texelsPerMeter: 50,
+        },
+      )
 
       const endpointGeometry = new THREE.SphereGeometry(0.42, 12, 8)
       for (const { shot, trajectory } of trajectories) {
         const points = trajectory.points.map(pointVector)
         const color = clubColorFor(shot.club || 'Driver')
         const isSelected = shot.id === selectedShotId
-        const line = createRangeLine(points, color, tracerMode === 'all' || (tracerMode === 'selected' && isSelected) ? (isSelected ? 0.95 : 0.35) : 0)
+        const line = createTracer(points, color, tracerMode === 'all' || (tracerMode === 'selected' && isSelected) ? (isSelected ? 0.95 : 0.35) : 0)
         const endpoint = new THREE.Mesh(endpointGeometry, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95 }))
         endpoint.position.copy(points[points.length - 1])
         endpoint.userData.shotId = shot.id
@@ -152,11 +185,43 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
 
       controls = new OrbitControls(camera, canvas)
       controls.enableDamping = true
-      controls.target.set(0, 1.5, maxDepth * 0.42)
+      const maxDepth = distanceScale === null
+        ? Math.max(120, Math.ceil(Math.max(...trajectories.map(({ trajectory }) => trajectory.totalDistance), 100) * 1.15 / 25) * 25)
+        : units === 'imperial' ? yardsToMeters(distanceScale) : distanceScale
+      controls.target.set(0, 1.5, Math.min(maxDepth * 0.42, 280))
       controls.minDistance = 7
       controls.maxDistance = Math.max(160, maxDepth * 1.25)
       controls.maxPolarAngle = Math.PI / 2.04
       controls.update()
+
+      const meshLoader = new MeshLoader(renderer)
+      void meshLoader.load(mountainModelUrl, true).then((mountain) => {
+        if (!active || !mountain) return
+        mountain.material = new THREE.MeshStandardMaterial({
+          map: grassTexture,
+          normalMap: grassNormalMap,
+          roughness: 1,
+          color: new THREE.Color('#687e80'),
+          displacementScale: 0.5,
+          normalScale: new THREE.Vector2(0, 0.5),
+          metalness: 0,
+        })
+        mountain.position.set(0, -12, 900)
+        mountain.scale.set(20, 20, 20)
+        scene.add(mountain)
+        sceneObjects.push(mountain)
+      }).catch(() => {
+        // The range remains usable if the optional horizon mesh cannot load.
+      })
+      void meshLoader.load(bagstandModelUrl).then((bagstand) => {
+        if (!active || !bagstand) return
+        bagstand.rotation.y = THREE.MathUtils.degToRad(180)
+        bagstand.position.set(-2, 0.1, 0)
+        scene.add(bagstand)
+        sceneObjects.push(bagstand)
+      }).catch(() => {
+        // The range remains usable if the optional tee furniture cannot load.
+      })
 
       const raycaster = new THREE.Raycaster()
       const pointer = new THREE.Vector2()
@@ -167,7 +232,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
         pointer.y = -((event.clientY - bounds.top) / bounds.height) * 2 + 1
         raycaster.setFromCamera(pointer, camera)
         const hit = raycaster.intersectObjects(shotObjects.map(({ endpoint }) => endpoint))[0]
-        if (hit?.object.userData.shotId) setSelectedShotId(hit.object.userData.shotId as number)
+        if (hit?.object.userData.shotId !== undefined) setSelectedShotId(hit.object.userData.shotId as number)
       }
       canvas.addEventListener('pointerup', selectShot)
 
@@ -178,8 +243,10 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
         for (const object of shotObjects) {
           const isSelected = object.shot.id === selectedShotId
           object.line.visible = tracerMode === 'all' || (tracerMode === 'selected' && isSelected)
-          const lineMaterial = object.line.material as THREE.LineBasicMaterial
-          lineMaterial.opacity = tracerMode === 'all' ? (isSelected ? 0.95 : 0.35) : 0.95
+          const tracerMaterials = object.line.userData.tracerMaterials as THREE.MeshBasicMaterial[]
+          const opacity = tracerMode === 'all' ? (isSelected ? 0.95 : 0.35) : 0.95
+          tracerMaterials[0].opacity = opacity * 0.22
+          tracerMaterials[1].opacity = opacity
           object.endpoint.visible = tracerMode !== 'off'
         }
         if (selectedBall && selected && tracerMode !== 'off') {
@@ -190,7 +257,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
           selectedBall.position.lerpVectors(pointVector(points[lower]), pointVector(points[upper]), progress - lower)
         }
         if (selectedBall) selectedBall.visible = tracerMode !== 'off'
-        renderer.render(scene, camera)
+        renderer.render(scene, camera, fog)
         animationFrame = requestAnimationFrame(update)
       }
 
@@ -211,13 +278,20 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
         resizeObserver.disconnect()
         canvas.removeEventListener('pointerup', selectShot)
         controls?.dispose()
+        yardageLines.dispose()
         for (const object of sceneObjects) {
-          if ('geometry' in object && object.geometry) (object as THREE.Mesh | THREE.Line).geometry.dispose()
-          if ('material' in object) {
-            const material = (object as THREE.Mesh | THREE.Line).material
-            if (Array.isArray(material)) material.forEach((item) => item.dispose())
-            else material.dispose()
-          }
+          object.traverse((child) => {
+            if ('geometry' in child && child.geometry) (child.geometry as THREE.BufferGeometry).dispose()
+            if ('material' in child) {
+              const material = child.material as THREE.Material | THREE.Material[]
+              if (Array.isArray(material)) material.forEach((item) => item.dispose())
+              else {
+                const materialWithMap = material as THREE.Material & { map?: THREE.Texture | null }
+                materialWithMap.map?.dispose()
+                material.dispose()
+              }
+            }
+          })
         }
         renderer?.renderer.dispose()
       }
