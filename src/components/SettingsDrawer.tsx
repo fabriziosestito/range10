@@ -57,6 +57,8 @@ type SettingsDrawerProps = {
   onCustomHumidityChange: (v: number) => void
   customPressure: number
   onCustomPressureChange: (v: number) => void
+  includeAirSwings: boolean
+  onIncludeAirSwingsChange: (v: boolean) => void
 }
 
 export function SettingsDrawer(props: SettingsDrawerProps) {
@@ -69,6 +71,7 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
     weatherMode, onWeatherModeChange, lastLocalAtmos, lastLocalPlace, lastLocalAt, weatherWarning, onRefreshLocal,
     customTempF, onCustomTempFChange, customElevationFt, onCustomElevationFtChange, customWindMph, onCustomWindMphChange, customWindDir, onCustomWindDirChange,
     customHumidity, onCustomHumidityChange, customPressure, onCustomPressureChange,
+    includeAirSwings, onIncludeAirSwingsChange,
   } = props
   const enabledCount = Object.values(enabledMetrics).filter(Boolean).length
 
@@ -110,6 +113,14 @@ export function SettingsDrawer(props: SettingsDrawerProps) {
             <span className="w-14 text-center text-sm font-semibold tabular-nums">{formatTeeDistance(teeDistance, units)}</span>
             <Button size="small" icon={<AddRegular />} onClick={() => onTeeDistanceStep(1)} disabled={teeDistance >= teeDistanceMax} aria-label="Increase tee distance" />
           </div>
+        </section>
+
+        <section className="flex items-center justify-between gap-3 border-b border-[var(--colorNeutralStroke2)] py-3.5">
+          <div>
+            <p className="text-sm font-semibold">Include air swings</p>
+            <p className="mt-0.5 text-xs text-[var(--colorNeutralForeground3)]">When off, shots without ball data (practice swings, speed training) are silently dropped.</p>
+          </div>
+          <Switch checked={includeAirSwings} onChange={(_, data) => onIncludeAirSwingsChange(data.checked)} aria-label="Include air swings" />
         </section>
 
         <section className="py-3.5">

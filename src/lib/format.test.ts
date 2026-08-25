@@ -157,9 +157,9 @@ describe('trajectoryForShot', () => {
     const total = trajectory.points[trajectory.points.length - 1]
 
     expect(carry.z).toBeCloseTo(yardsToMeters(shot.carry), 5)
-    expect(carry.x).toBeCloseTo(yardsToMeters(shot.carryOffline), 5)
+    expect(carry.x).toBeCloseTo(-yardsToMeters(shot.carryOffline), 5)
     expect(total.z).toBeCloseTo(yardsToMeters(shot.total), 5)
-    expect(total.x).toBeCloseTo(yardsToMeters(shot.offline), 5)
+    expect(total.x).toBeCloseTo(-yardsToMeters(shot.offline), 5)
   })
 
   it('places the apex above the flight midpoint', () => {
@@ -185,8 +185,8 @@ describe('formatDistance', () => {
 })
 
 describe('formatTeeDistance', () => {
-  it('labels imperial values in yards', () => {
-    expect(formatTeeDistance(2.3, 'imperial')).toBe('2.3 yd')
+  it('labels imperial values in feet', () => {
+    expect(formatTeeDistance(2.3, 'imperial')).toBe('7 ft')
   })
 
   it('converts and labels metric values in meters', () => {

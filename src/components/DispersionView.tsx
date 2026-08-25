@@ -16,9 +16,25 @@ type DispersionViewProps = {
 
 const clubPalette: Record<string, string> = {
   driver: '#f6bd4f',
+  '1 wood': '#e8a830',
+  '2 wood': '#d49b2a',
   '3 wood': '#60c5d8',
+  '4 wood': '#50b5c8',
   '5 wood': '#54a9d8',
-  hybrid: '#9acb67',
+  '6 wood': '#4899c8',
+  '7 wood': '#3c89b8',
+  '8 wood': '#3079a8',
+  '9 wood': '#246998',
+  '2 hybrid': '#8ad66a',
+  '3 hybrid': '#80cc60',
+  '4 hybrid': '#76c256',
+  '5 hybrid': '#9acb67',
+  '6 hybrid': '#90c15d',
+  '7 hybrid': '#86b753',
+  '8 hybrid': '#7cad49',
+  '9 hybrid': '#72a33f',
+  '1 iron': '#c9b7f4',
+  '2 iron': '#bfadf0',
   '3 iron': '#b9a7f4',
   '4 iron': '#a58be6',
   '5 iron': '#d586c4',
@@ -27,9 +43,15 @@ const clubPalette: Record<string, string> = {
   '8 iron': '#f28f55',
   '9 iron': '#f3a34f',
   'pitching wedge': '#f177a8',
+  pw: '#f177a8',
   wedge: '#f177a8',
+  uw: '#c485e0',
+  gw: '#d98bd4',
+  'gap wedge': '#d98bd4',
   'sand wedge': '#ee8b56',
+  sw: '#ee8b56',
   'lob wedge': '#d77ae4',
+  lw: '#d77ae4',
   putter: '#c8d2d8',
 }
 
@@ -60,13 +82,12 @@ function distanceLines(maxDistance: number) {
 }
 
 export function DispersionView({ history, units, mode, distanceScale, onModeChange }: DispersionViewProps) {
-  if (history.length === 0) return null
-
-  const distances = history
+  const ballShots = history.filter((shot) => !shot.airSwing)
+  const distances = ballShots
     .map((shot) => mode === 'carry' ? shot.carry : shot.total)
     .map((distance) => units === 'metric' ? yardsToMeters(distance) : distance)
     .filter((distance) => Number.isFinite(distance) && distance > 0)
-  const laterals = history
+  const laterals = ballShots
     .map((shot) => mode === 'carry' ? shot.carryOffline : shot.offline)
     .map((lateral) => units === 'metric' ? yardsToMeters(lateral) : lateral)
     .filter(Number.isFinite)
@@ -79,9 +100,9 @@ export function DispersionView({ history, units, mode, distanceScale, onModeChan
   const maxY = distanceScale ?? fittedDistanceScale
   const lateralExtent = fittedLateralScale
   const lines = distanceLines(maxY)
-  const clubs = Array.from(new Set(history.map((shot) => clubLabel(shot.club))))
-  const clubCounts = new Map(clubs.map((club) => [club, history.filter((shot) => clubLabel(shot.club) === club).length]))
-  const shotsOutsideView = history.filter((shot) => {
+  const clubs = Array.from(new Set(ballShots.map((shot) => clubLabel(shot.club))))
+  const clubCounts = new Map(clubs.map((club) => [club, ballShots.filter((shot) => clubLabel(shot.club) === club).length]))
+  const shotsOutsideView = ballShots.filter((shot) => {
     const rawDistance = mode === 'carry' ? shot.carry : shot.total
     const distance = units === 'metric' ? yardsToMeters(rawDistance) : rawDistance
     return distance > maxY
@@ -200,7 +221,7 @@ export function DispersionView({ history, units, mode, distanceScale, onModeChan
             left / right of target line
           </text>
 
-          {history.map((shot, index) => {
+          {ballShots.map((shot, index) => {
             const rawDistance = mode === 'carry' ? shot.carry : shot.total
             const rawLateral = mode === 'carry' ? shot.carryOffline : shot.offline
             const distance = units === 'metric' ? yardsToMeters(rawDistance) : rawDistance

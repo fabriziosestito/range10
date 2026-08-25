@@ -32,7 +32,7 @@ export function trajectoryForShot(shot: Shot, flightSamples = 40, rollSamples = 
   for (let index = 0; index <= flightSamples; index++) {
     const progress = index / flightSamples
     points.push({
-      x: carryLateral * progress,
+      x: -carryLateral * progress,
       y: 4 * apex * progress * (1 - progress),
       z: carryDistance * progress,
     })
@@ -43,7 +43,7 @@ export function trajectoryForShot(shot: Shot, flightSamples = 40, rollSamples = 
   for (let index = 1; index <= rollSamples; index++) {
     const progress = index / rollSamples
     points.push({
-      x: carryLateral + (totalLateral - carryLateral) * progress,
+      x: -(carryLateral + (totalLateral - carryLateral) * progress),
       y: 0,
       z: carryDistance + rollDistance * progress,
     })

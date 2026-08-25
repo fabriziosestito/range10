@@ -5,8 +5,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { CourseLight, FuseRenderer, MeshLoader, YardageLinesMaterial } from '@opengolfsim/fuse'
 
 import { clubColorFor } from '@/components/DispersionView'
-import { yardsToMeters, type Shot } from '@/lib/format'
+import { highlightParts, statMetrics, yardsToMeters, type Shot, type StatMetricKey } from '@/lib/format'
 import { trajectoryForShot, type ShotTrajectory, type TrajectoryPoint } from '@/lib/trajectory'
+
+const overlayMetrics: StatMetricKey[] = ['carry', 'total', 'offline', 'totalDeviationDeg', 'carryOffline', 'carryDeviationDeg']
 
 const mountainModelUrl = '/fuse-range/models/rangeMtns.glb'
 const bagstandModelUrl = '/fuse-range/models/bagstand.glb'
@@ -55,6 +57,8 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
   const [selectedShotId, setSelectedShotId] = useState(history[0]?.id ?? 0)
   const [error, setError] = useState('')
 
+  const selectedShot = history.find((shot) => shot.id === selectedShotId) ?? null
+
   useEffect(() => {
     if (!history.some((shot) => shot.id === selectedShotId)) setSelectedShotId(history[0]?.id ?? 0)
   }, [history, selectedShotId])
@@ -77,7 +81,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
       const webgl = canvas.getContext('webgl2') || canvas.getContext('webgl')
       if (!webgl) throw new Error('WebGL is not available')
 
-      const trajectories = history.map((shot) => ({ shot, trajectory: trajectoryForShot(shot) }))
+      const trajectories = history.filter((shot) => !shot.airSwing).map((shot) => ({ shot, trajectory: trajectoryForShot(shot) }))
       const scene = new THREE.Scene()
       const skyColor = new THREE.Color('#abd0db')
       const fogColor = new THREE.Color('#9bb0b7')
@@ -85,7 +89,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
       const fog = new THREE.Fog(fogColor, 160, 1000)
       scene.fog = fog
       const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 3000)
-      camera.position.set(0, 7, -20)
+      camera.position.set(0, 8, -28)
       camera.lookAt(0, 2, 200)
 
       renderer = new FuseRenderer({ canvas, container, renderMode: 'webgl', adaptive: true, antialias: true })
@@ -179,7 +183,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
         new THREE.SphereGeometry(0.28, 12, 8),
         new THREE.MeshBasicMaterial({ color: '#ffffff' }),
       )
-      selectedBall.visible = tracerMode !== 'off'
+      selectedBall.visible = tracerMode !== 'off' && trajectories.length > 0
       scene.add(selectedBall)
       sceneObjects.push(selectedBall)
 
@@ -256,7 +260,7 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
           const upper = Math.min(points.length - 1, lower + 1)
           selectedBall.position.lerpVectors(pointVector(points[lower]), pointVector(points[upper]), progress - lower)
         }
-        if (selectedBall) selectedBall.visible = tracerMode !== 'off'
+        if (selectedBall) selectedBall.visible = tracerMode !== 'off' && trajectories.length > 0
         renderer.render(scene, camera, fog)
         animationFrame = requestAnimationFrame(update)
       }
@@ -325,9 +329,37 @@ export function ThreeRangeView({ history, units, distanceScale }: ThreeRangeView
             3D view is unavailable on this device. Switch back to Map view.
           </div>
         )}
-        <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/30 px-2 py-1 text-[0.65rem] text-white/80">
-          Distances in {units === 'imperial' ? 'yards' : 'meters'} · FUSE WebGL
-        </div>
+        {selectedShot && (
+          <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-black/50 px-3 py-2 backdrop-blur-sm">
+            <div className="mb-1.5 flex items-center gap-2">
+              <span className="size-2 rounded-full" style={{ background: clubColorFor(selectedShot.club || 'Driver') }} />
+              <span className="text-[0.7rem] font-semibold text-white/90">{selectedShot.club || 'Driver'}</span>
+              <span className="text-[0.6rem] text-white/50">#{selectedShot.id}</span>
+              {selectedShot.airSwing && (
+                <span className="rounded bg-amber-500/30 px-1 py-0.5 text-[0.55rem] font-semibold text-amber-300">Air</span>
+              )}
+            </div>
+            {selectedShot.airSwing ? (
+              <p className="text-[0.6rem] text-white/50">No ball data — club metrics only</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                {overlayMetrics.map((key) => {
+                  const metric = statMetrics.find((m) => m.key === key)
+                  if (!metric) return null
+                  const parts = highlightParts(metric, selectedShot, units)
+                  return (
+                    <div key={key} className="flex items-baseline justify-between gap-2">
+                      <span className="text-[0.55rem] font-medium uppercase tracking-wider text-white/50">{metric.label}</span>
+                      <span className="text-[0.7rem] font-semibold tabular-nums text-white/90">
+                        {parts.value}{parts.unit ? ` ${parts.unit}` : ''}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
       <p className="text-xs tabular-nums text-[var(--colorNeutralForeground3)]">
         {history.length} shots · {tracerMode === 'off' ? 'tracers hidden' : tracerMode === 'all' ? 'all tracers' : 'selected tracer'} · {units === 'imperial' ? 'yd' : 'm'}

@@ -19,7 +19,7 @@ import {
 } from '@fluentui/react-icons'
 
 import { ConnectDialog } from '@/components/ConnectDialog'
-import { DispersionView } from '@/components/DispersionView'
+import { clubColorFor, DispersionView } from '@/components/DispersionView'
 import { MetricGrid } from '@/components/MetricGrid'
 import { SettingsDrawer, type ThemePreference } from '@/components/SettingsDrawer'
 import { darkTheme, lightTheme, themeColors } from '@/theme'
@@ -39,6 +39,7 @@ import {
   type R10ShotMetrics,
   type Shot,
   type StatMetricKey,
+  CLUB_GROUPS,
 } from '@/lib/format'
 
 const pages = [
@@ -83,6 +84,8 @@ type SavedPreferences = {
   metricOrder?: StatMetricKey[]
   hiddenMetrics?: StatMetricKey[]
   weather?: SavedWeather | null
+  selectedClub?: string
+  includeAirSwings?: boolean
 }
 
 const metricLabels: Record<MetricKey, string> = {
@@ -119,15 +122,15 @@ const DEFAULT_ATMOS: AtmosphericData = {
   pressure_inhg: 29.92,
 }
 
-const TEE_DISTANCE_DEFAULT = 2.3
+const TEE_DISTANCE_DEFAULT = 7 / 3
 
 const RECONNECT_DELAY_MS = 2000
 const RECONNECT_ATTEMPTS = 2
 const BLE_CONNECT_TIMEOUT_MS = 6000
 const HANDSHAKE_TIMEOUT_MS = 10000
-const TEE_DISTANCE_MIN = 2.0
-const TEE_DISTANCE_MAX = 2.6
-const TEE_DISTANCE_STEP = 0.1
+const TEE_DISTANCE_MIN = 6 / 3
+const TEE_DISTANCE_MAX = 8 / 3
+const TEE_DISTANCE_STEP = 1 / 3
 
 const initialShot: Shot = {
   id: 0,
@@ -277,9 +280,11 @@ function App() {
   const [pageIndex, setPageIndex] = useState(0)
   const [statsExpanded, setStatsExpanded] = useState(false)
   const [dispersionMode, setDispersionMode] = useState<'carry' | 'total'>('carry')
-  const [viewMode, setViewMode] = useState<'map' | '3d'>('map')
+  const [viewMode, setViewMode] = useState<'map' | '3d'>('3d')
   const [distanceScale, setDistanceScale] = useState<number | null>(null)
   const [teeDistance, setTeeDistance] = useState(TEE_DISTANCE_DEFAULT)
+  const [selectedClub, setSelectedClub] = useState<string>('Driver')
+  const [includeAirSwings, setIncludeAirSwings] = useState(false)
   const [weatherMode, setWeatherMode] = useState<WeatherMode>('local')
   const [customTempF, setCustomTempF] = useState(DEFAULT_ATMOS.temp_f)
   const [customElevationFt, setCustomElevationFt] = useState(DEFAULT_ATMOS.elevation_ft)
@@ -303,6 +308,8 @@ function App() {
   const handshakeTimerRef = useRef<number | null>(null)
   const connectLockRef = useRef(false)
   const metricsByShotRef = useRef(new Map<number, R10ShotMetrics>())
+  const selectedClubRef = useRef(selectedClub)
+  const includeAirSwingsRef = useRef(includeAirSwings)
   const selectedAddressRef = useRef('')
   const reconnectAttemptsRef = useRef(0)
   const reconnectingRef = useRef(false)
@@ -421,6 +428,8 @@ function App() {
         if (saved.metricOrder?.length || saved.pinnedMetrics?.length) setMetricOrder(normalizeMetricOrder(saved.metricOrder, saved.pinnedMetrics))
         if (saved.hiddenMetrics) setHiddenMetrics(saved.hiddenMetrics.filter((key) => defaultMetricOrder.includes(key)))
         if (typeof saved.teeDistance === 'number') setTeeDistance(saved.teeDistance)
+        if (typeof saved.selectedClub === 'string') setSelectedClub(saved.selectedClub)
+        if (typeof saved.includeAirSwings === 'boolean') setIncludeAirSwings(saved.includeAirSwings)
         if (saved.weather) {
           if (saved.weather.mode) setWeatherMode(saved.weather.mode)
           if (typeof saved.weather.custom_temp_f === 'number') setCustomTempF(saved.weather.custom_temp_f)
@@ -443,12 +452,15 @@ function App() {
   useEffect(() => {
     if (!settingsLoaded || !isTauriRuntime()) return
     void settingsStore.set('preferences', {
-      preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics,
+      preferredR10Address, enabledMetrics, voiceEnabled, units, teeDistance, theme, metricOrder, hiddenMetrics, selectedClub, includeAirSwings,
       weather: { mode: weatherMode, custom_temp_f: customTempF, custom_elevation_ft: customElevationFt, custom_wind_mph: customWindMph, custom_wind_dir: customWindDir, custom_humidity: customHumidity, custom_pressure: customPressure, last_local_atmos: lastLocalAtmos, last_local_place: lastLocalPlace, last_local_at: lastLocalAt },
     })
     void invoke('set_voice_config', { config: { voiceEnabled, metrics: enabledMetrics, units } }).catch(() => undefined)
     void invoke('set_tee_distance', { yards: teeDistance }).catch(() => undefined)
-  }, [customElevationFt, customHumidity, customPressure, customTempF, customWindDir, customWindMph, enabledMetrics, hiddenMetrics, lastLocalAt, lastLocalAtmos, lastLocalPlace, metricOrder, preferredR10Address, settingsLoaded, teeDistance, theme, units, voiceEnabled, weatherMode])
+  }, [customElevationFt, customHumidity, customPressure, customTempF, customWindDir, customWindMph, enabledMetrics, hiddenMetrics, includeAirSwings, lastLocalAt, lastLocalAtmos, lastLocalPlace, metricOrder, preferredR10Address, selectedClub, settingsLoaded, teeDistance, theme, units, voiceEnabled, weatherMode])
+
+  useEffect(() => { selectedClubRef.current = selectedClub }, [selectedClub])
+  useEffect(() => { includeAirSwingsRef.current = includeAirSwings }, [includeAirSwings])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -595,12 +607,15 @@ function App() {
     let active = true
     let dispose: (() => void) | undefined
     void listen<R10Shot>('r10://shot', ({ payload }) => {
+      const hasBall = payload.ball != null
+      if (!hasBall && !includeAirSwingsRef.current) return
       const metrics = metricsByShotRef.current.get(payload.shot_id)
       metricsByShotRef.current.delete(payload.shot_id)
       const nextShot: Shot = withMetrics({
         ...initialShot,
         id: payload.shot_id,
-        club: 'Driver',
+        club: selectedClubRef.current,
+        airSwing: !hasBall,
         clubSpeed: (payload.club?.club_head_speed ?? 0) * 2.23694,
         path: payload.club?.path_angle ?? 0,
         face: payload.club?.face_angle ?? 0,
@@ -614,7 +629,7 @@ function App() {
         spinAxis: payload.ball?.spin_axis ?? 0,
         backspin: payload.ball?.backspin ?? 0,
         sidespin: payload.ball?.sidespin ?? 0,
-      }, metrics)
+      }, hasBall ? metrics : undefined)
       setShot(nextShot)
       setHistory((current) => [nextShot, ...current])
     }).then((unlisten) => {
@@ -982,6 +997,21 @@ function App() {
             <p className="truncate text-sm font-bold tracking-tight">range10</p>
           </div>
           <div className="flex items-center gap-1">
+            <Select
+              size="small"
+              aria-label="Selected club"
+              value={selectedClub}
+              onChange={(_, data) => setSelectedClub(data.value)}
+              className="max-w-[8rem]"
+            >
+              {CLUB_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.clubs.map((club) => (
+                    <option key={club} value={club}>{club}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </Select>
             {showDevTools && (
               <Button title="Simulate R10 shot" size="small" appearance="subtle" icon={simulating ? <Spinner size="extra-tiny" /> : <FlashRegular />} onClick={() => void simulateShot()} disabled={simulating} aria-label="Simulate R10 shot" />
             )}
@@ -1031,6 +1061,8 @@ function App() {
                   <TableHeader className="sticky top-0 z-10 bg-[var(--colorNeutralBackground1)]">
                     <TableRow>
                       <TableHeaderCell className="pl-3">Shot</TableHeaderCell>
+                      <TableHeaderCell>Club</TableHeaderCell>
+                      <TableHeaderCell>Type</TableHeaderCell>
                       <TableHeaderCell>Club speed</TableHeaderCell>
                       <TableHeaderCell>Path</TableHeaderCell>
                       <TableHeaderCell>Tempo</TableHeaderCell>
@@ -1041,10 +1073,21 @@ function App() {
                     {history.map((item) => (
                       <TableRow key={item.id} appearance={item.id === shot.id ? 'brand' : 'none'}>
                         <TableCell className="pl-3 font-medium">#{item.id}</TableCell>
+                        <TableCell>
+                          <span className="inline-flex items-center gap-1.5">
+                            <span className="inline-block size-2 rounded-full" style={{ background: clubColorFor(item.club) }} />
+                            {item.club}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Badge appearance="tint" color={item.airSwing ? 'warning' : 'success'} size="small">
+                            {item.airSwing ? 'Air' : 'Ball'}
+                          </Badge>
+                        </TableCell>
                         <TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell>
                         <TableCell>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell>
                         <TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell>
-                        <TableCell>{formatDistance(item.carry, units)}</TableCell>
+                        <TableCell>{item.airSwing ? '—' : formatDistance(item.carry, units)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -1057,27 +1100,21 @@ function App() {
 
           {page.id === 'view' && (
             <div className="flex h-full min-h-0 flex-col gap-2">
-              {history.length ? (
-                <>
-                  <div className="flex shrink-0 justify-end">
-                    <Select size="small" aria-label="View mode" value={viewMode} onChange={(_, data) => setViewMode(data.value as 'map' | '3d')}>
-                      <option value="map">2D Map</option>
-                      <option value="3d">3D Range</option>
-                    </Select>
-                  </div>
-                  <div className="min-h-0 flex-1">
-                    {viewMode === '3d' ? (
-                      <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--colorNeutralForeground3)]">Loading 3D range...</div>}>
-                        <ThreeRangeView history={history} units={units} distanceScale={distanceScale} />
-                      </Suspense>
-                    ) : (
-                      <DispersionView history={history} units={units} mode={dispersionMode} distanceScale={distanceScale} onModeChange={setDispersionMode} />
-                    )}
-                  </div>
-                </>
-              ) : (
-                <EmptyState icon={<BoxRegular />} title="No shots yet" description="Your dispersion map will appear here once you hit shots. Carry and total views are toggled above." />
-              )}
+              <div className="flex shrink-0 justify-end">
+                <Select size="small" aria-label="View mode" value={viewMode} onChange={(_, data) => setViewMode(data.value as 'map' | '3d')}>
+                  <option value="map">2D Map</option>
+                  <option value="3d">3D Range</option>
+                </Select>
+              </div>
+              <div className="min-h-0 flex-1">
+                {viewMode === '3d' ? (
+                  <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-[var(--colorNeutralForeground3)]">Loading 3D range...</div>}>
+                    <ThreeRangeView history={history} units={units} distanceScale={distanceScale} />
+                  </Suspense>
+                ) : (
+                  <DispersionView history={history} units={units} mode={dispersionMode} distanceScale={distanceScale} onModeChange={setDispersionMode} />
+                )}
+              </div>
             </div>
           )}
         </main>
@@ -1130,7 +1167,7 @@ function App() {
         teeDistance={teeDistance}
         teeDistanceMin={TEE_DISTANCE_MIN}
         teeDistanceMax={TEE_DISTANCE_MAX}
-        onTeeDistanceStep={(direction) => setTeeDistance((current) => Math.min(TEE_DISTANCE_MAX, Math.max(TEE_DISTANCE_MIN, Math.round((current + direction * TEE_DISTANCE_STEP) * 10) / 10)))}
+        onTeeDistanceStep={(direction) => setTeeDistance((current) => Math.min(TEE_DISTANCE_MAX, Math.max(TEE_DISTANCE_MIN, Math.round((current + direction * TEE_DISTANCE_STEP) * 3) / 3)))}
         voiceEnabled={voiceEnabled}
         onVoiceEnabledChange={setVoiceEnabled}
         metricLabels={metricLabels}
@@ -1162,6 +1199,8 @@ function App() {
         onCustomHumidityChange={setCustomHumidity}
         customPressure={customPressure}
         onCustomPressureChange={setCustomPressure}
+        includeAirSwings={includeAirSwings}
+        onIncludeAirSwingsChange={setIncludeAirSwings}
       />
 
       <ConnectDialog

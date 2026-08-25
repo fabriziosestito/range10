@@ -5,6 +5,7 @@ export type MetricKey = 'clubSpeed' | 'path' | 'face' | 'attack' | 'tempo' | 'la
 export type Shot = {
   id: number
   club: string
+  airSwing?: boolean
   clubSpeed: number
   path: number
   face: number
@@ -28,6 +29,24 @@ export type Shot = {
   carryDeviationDeg: number
   totalDeviationDeg: number
 }
+
+export const CLUB_LIST = [
+  'Driver', '1 Wood', '2 Wood', '3 Wood', '4 Wood', '5 Wood', '6 Wood', '7 Wood', '8 Wood', '9 Wood',
+  '2 Hybrid', '3 Hybrid', '4 Hybrid', '5 Hybrid', '6 Hybrid', '7 Hybrid', '8 Hybrid', '9 Hybrid',
+  '1 Iron', '2 Iron', '3 Iron', '4 Iron', '5 Iron', '6 Iron', '7 Iron', '8 Iron', '9 Iron',
+  'PW', 'UW', 'Wedge', 'GW', 'SW', 'LW',
+  'Putter',
+] as const
+
+export type Club = (typeof CLUB_LIST)[number]
+
+export const CLUB_GROUPS: { label: string; clubs: Club[] }[] = [
+  { label: 'Woods', clubs: ['Driver', '1 Wood', '2 Wood', '3 Wood', '4 Wood', '5 Wood', '6 Wood', '7 Wood', '8 Wood', '9 Wood'] },
+  { label: 'Hybrids', clubs: ['2 Hybrid', '3 Hybrid', '4 Hybrid', '5 Hybrid', '6 Hybrid', '7 Hybrid', '8 Hybrid', '9 Hybrid'] },
+  { label: 'Irons', clubs: ['1 Iron', '2 Iron', '3 Iron', '4 Iron', '5 Iron', '6 Iron', '7 Iron', '8 Iron', '9 Iron'] },
+  { label: 'Wedges', clubs: ['PW', 'UW', 'Wedge', 'GW', 'SW', 'LW'] },
+  { label: 'Putter', clubs: ['Putter'] },
+]
 
 export type R10Shot = {
   shot_id: number
@@ -83,6 +102,7 @@ export function formatMapDistance(distance: number, units: 'imperial' | 'metric'
 }
 
 export function formatTeeDistance(yards: number, units: 'imperial' | 'metric') {
+  if (units === 'imperial') return `${Math.round(yards * 3)} ft`
   return formatDistance(yards, units)
 }
 
@@ -220,7 +240,7 @@ function formatSmash(value: number) {
   return value.toFixed(2)
 }
 
-type NumericShotKey = Exclude<keyof Shot, 'club'>
+type NumericShotKey = Exclude<keyof Shot, 'club' | 'airSwing'>
 
 const distance = (key: NumericShotKey): StatMetric['value'] => (shot) => shot[key]
 const degrees = (key: NumericShotKey): StatMetric['value'] => (shot) => shot[key]
