@@ -555,7 +555,9 @@ pub fn run() {
         .manage(VoiceState::default())
         .plugin(tauri_plugin_blec::init())
         .plugin(tauri_plugin_tts::init())
-        .plugin(tauri_plugin_store::Builder::default().build());
+        .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init());
     // Native GPS for local weather; the plugin only supports iOS/Android.
     // Desktop falls back to navigator.geolocation (and Custom mode on failure).
     #[cfg(mobile)]

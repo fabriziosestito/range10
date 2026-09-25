@@ -25,6 +25,8 @@ tauri-plugin-log = "2"
 tauri-plugin-blec = "0.12"
 tauri-plugin-tts = "0.1"
 tauri-plugin-store = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-dialog = "2"
 tenover = { git = "https://github.com/fabriziosestito/10over", rev = "2202b20879763cead3443eff5f7ae8df398c99c7", features = ["serde"] }
 time = { version = "0.3", features = ["formatting", "macros"] }
 tokio = { version = "1", features = ["sync", "time"] }

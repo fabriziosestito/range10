@@ -9,6 +9,8 @@
     "core:default",
     "blec:default",
     "tts:default",
-    "store:default"
+    "store:default",
+    "fs:default",
+    "dialog:default"
   ]
 }

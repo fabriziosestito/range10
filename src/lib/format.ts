@@ -30,6 +30,14 @@ export type Shot = {
   totalDeviationDeg: number
 }
 
+export type Session = {
+  id: string
+  name: string
+  createdAt: number
+  closedAt: number | null
+  shots: Shot[]
+}
+
 export const CLUB_LIST = [
   'Driver', '1 Wood', '2 Wood', '3 Wood', '4 Wood', '5 Wood', '6 Wood', '7 Wood', '8 Wood', '9 Wood',
   '2 Hybrid', '3 Hybrid', '4 Hybrid', '5 Hybrid', '6 Hybrid', '7 Hybrid', '8 Hybrid', '9 Hybrid',

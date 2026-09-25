@@ -16,11 +16,14 @@ import {
   FlashRegular,
   ListRegular,
   SettingsRegular,
+  FolderOpenRegular,
 } from '@fluentui/react-icons'
 
 import { ConnectDialog } from '@/components/ConnectDialog'
 import { clubColorFor, DispersionView } from '@/components/DispersionView'
 import { MetricGrid } from '@/components/MetricGrid'
+import { ResumeDialog } from '@/components/ResumeDialog'
+import { SessionList } from '@/components/SessionList'
 import { SettingsDrawer, type ThemePreference } from '@/components/SettingsDrawer'
 import { darkTheme, lightTheme, themeColors } from '@/theme'
 import { cn } from '@/lib/utils'
@@ -40,11 +43,15 @@ import {
   type Shot,
   type StatMetricKey,
   CLUB_GROUPS,
+  type Session,
 } from '@/lib/format'
+import { loadSessions, saveSessions, loadActiveSessionId, saveActiveSessionId } from '@/lib/sessionStore'
+import { exportSession, exportAllSessions, importSessions } from '@/lib/sessionExport'
 
 const pages = [
   { id: 'data', label: 'Data' },
   { id: 'session', label: 'Session' },
+  { id: 'sessions', label: 'Sessions' },
   { id: 'view', label: 'View' },
 ] as const
 
@@ -302,6 +309,9 @@ function App() {
   const [previewSpeaking, setPreviewSpeaking] = useState(false)
   const [copyingLogs, setCopyingLogs] = useState(false)
   const [logCopyState, setLogCopyState] = useState('')
+  const [sessions, setSessions] = useState<Session[]>([])
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null)
+  const [resumePrompt, setResumePrompt] = useState<Session | null>(null)
   const attemptRef = useRef(0)
   const scanTimerRef = useRef<number | null>(null)
   const readyTimerRef = useRef<number | null>(null)
@@ -310,6 +320,8 @@ function App() {
   const metricsByShotRef = useRef(new Map<number, R10ShotMetrics>())
   const selectedClubRef = useRef(selectedClub)
   const includeAirSwingsRef = useRef(includeAirSwings)
+  const sessionsRef = useRef(sessions)
+  const activeSessionIdRef = useRef(activeSessionId)
   const selectedAddressRef = useRef('')
   const reconnectAttemptsRef = useRef(0)
   const reconnectingRef = useRef(false)
@@ -461,6 +473,31 @@ function App() {
 
   useEffect(() => { selectedClubRef.current = selectedClub }, [selectedClub])
   useEffect(() => { includeAirSwingsRef.current = includeAirSwings }, [includeAirSwings])
+  useEffect(() => { sessionsRef.current = sessions }, [sessions])
+  useEffect(() => { activeSessionIdRef.current = activeSessionId }, [activeSessionId])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void (async () => {
+      const [loaded, activeId] = await Promise.all([loadSessions(), loadActiveSessionId()])
+      setSessions(loaded)
+      setActiveSessionId(activeId)
+      if (activeId) {
+        const active = loaded.find((s) => s.id === activeId && s.closedAt === null)
+        if (active) setResumePrompt(active)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!isTauriRuntime() || sessions.length === 0) return
+    void saveSessions(sessions)
+  }, [sessions])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    void saveActiveSessionId(activeSessionId)
+  }, [activeSessionId])
 
   useEffect(() => {
     const media = window.matchMedia?.('(prefers-color-scheme: dark)') ?? {
@@ -597,6 +634,25 @@ function App() {
       const nextShot = (event as CustomEvent<Shot>).detail
       setShot(nextShot)
       setHistory((current) => [nextShot, ...current])
+      setSessions((current) => {
+        let updated = current
+        let activeId = activeSessionIdRef.current
+        if (!activeId) {
+          const newSession: Session = {
+            id: crypto.randomUUID(),
+            name: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+            createdAt: Date.now(),
+            closedAt: null,
+            shots: [],
+          }
+          updated = [newSession, ...updated]
+          activeId = newSession.id
+          setActiveSessionId(activeId)
+        }
+        return updated.map((s) =>
+          s.id === activeId ? { ...s, shots: [...s.shots, { ...nextShot, id: s.shots.length + 1 }] } : s,
+        )
+      })
     }
     window.addEventListener('range:shot', onShot)
     return () => window.removeEventListener('range:shot', onShot)
@@ -632,6 +688,25 @@ function App() {
       }, hasBall ? metrics : undefined)
       setShot(nextShot)
       setHistory((current) => [nextShot, ...current])
+      setSessions((current) => {
+        let updated = current
+        let activeId = activeSessionIdRef.current
+        if (!activeId) {
+          const newSession: Session = {
+            id: crypto.randomUUID(),
+            name: `Session ${new Date().toLocaleDateString()} ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
+            createdAt: Date.now(),
+            closedAt: null,
+            shots: [],
+          }
+          updated = [newSession, ...updated]
+          activeId = newSession.id
+          setActiveSessionId(activeId)
+        }
+        return updated.map((s) =>
+          s.id === activeId ? { ...s, shots: [...s.shots, { ...nextShot, id: s.shots.length + 1 }] } : s,
+        )
+      })
     }).then((unlisten) => {
       if (active) dispose = unlisten
       else unlisten()
@@ -986,6 +1061,52 @@ function App() {
     }
   }
 
+  const closeSession = () => {
+    setSessions((current) =>
+      current.map((s) => (s.id === activeSessionId ? { ...s, closedAt: Date.now() } : s)),
+    )
+    setActiveSessionId(null)
+    setResumePrompt(null)
+  }
+
+  const resumeSession = (id: string) => {
+    setActiveSessionId(id)
+    setResumePrompt(null)
+  }
+
+  const renameSession = (id: string, name: string) => {
+    setSessions((current) => current.map((s) => (s.id === id ? { ...s, name } : s)))
+  }
+
+  const deleteSession = (id: string) => {
+    setSessions((current) => current.filter((s) => s.id !== id))
+    if (id === activeSessionId) setActiveSessionId(null)
+  }
+
+  const handleExportSession = async (session: Session) => {
+    if (!isTauriRuntime()) return
+    await exportSession(session, units)
+  }
+
+  const handleExportAll = async () => {
+    if (!isTauriRuntime()) return
+    await exportAllSessions(sessions, units)
+  }
+
+  const handleImport = async () => {
+    if (!isTauriRuntime()) return
+    const imported = await importSessions()
+    if (imported.length > 0) {
+      setSessions((current) => {
+        const existingIds = new Set(current.map((s) => s.id))
+        const newSessions = imported.filter((s) => !existingIds.has(s.id))
+        return [...current, ...newSessions]
+      })
+    }
+  }
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null
+
   const page = pages[pageIndex]
 
   return (
@@ -1055,47 +1176,69 @@ function App() {
           )}
 
           {page.id === 'session' && (
-            <div className="h-full min-h-0 overflow-auto rounded-md border border-[var(--colorNeutralStroke2)]">
-              {history.length ? (
-                <Table size="small" aria-label="Shot log">
-                  <TableHeader className="sticky top-0 z-10 bg-[var(--colorNeutralBackground1)]">
-                    <TableRow>
-                      <TableHeaderCell className="pl-3">Shot</TableHeaderCell>
-                      <TableHeaderCell>Club</TableHeaderCell>
-                      <TableHeaderCell>Type</TableHeaderCell>
-                      <TableHeaderCell>Club speed</TableHeaderCell>
-                      <TableHeaderCell>Path</TableHeaderCell>
-                      <TableHeaderCell>Tempo</TableHeaderCell>
-                      <TableHeaderCell>Carry</TableHeaderCell>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {history.map((item) => (
-                      <TableRow key={item.id} appearance={item.id === shot.id ? 'brand' : 'none'}>
-                        <TableCell className="pl-3 font-medium">#{item.id}</TableCell>
-                        <TableCell>
-                          <span className="inline-flex items-center gap-1.5">
-                            <span className="inline-block size-2 rounded-full" style={{ background: clubColorFor(item.club) }} />
-                            {item.club}
-                          </span>
-                        </TableCell>
-                        <TableCell>
-                          <Badge appearance="tint" color={item.airSwing ? 'warning' : 'success'} size="small">
-                            {item.airSwing ? 'Air' : 'Ball'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell>
-                        <TableCell>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell>
-                        <TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell>
-                        <TableCell>{item.airSwing ? '—' : formatDistance(item.carry, units)}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              ) : (
-                <EmptyState icon={<DataUsageRegular />} title="No shots yet" description="Shots recorded by your R10 will be listed here." />
+            <div className="flex h-full min-h-0 flex-col gap-2">
+              {activeSession && (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-sm font-semibold tracking-tight">{activeSession.name}</p>
+                  <Button size="small" appearance="secondary" onClick={closeSession}>Close session</Button>
+                </div>
               )}
+              <div className="min-h-0 flex-1 overflow-auto rounded-md border border-[var(--colorNeutralStroke2)]">
+                {activeSession && activeSession.shots.length > 0 ? (
+                  <Table size="small" aria-label="Shot log">
+                    <TableHeader className="sticky top-0 z-10 bg-[var(--colorNeutralBackground1)]">
+                      <TableRow>
+                        <TableHeaderCell className="pl-3">Shot</TableHeaderCell>
+                        <TableHeaderCell>Club</TableHeaderCell>
+                        <TableHeaderCell>Type</TableHeaderCell>
+                        <TableHeaderCell>Club speed</TableHeaderCell>
+                        <TableHeaderCell>Path</TableHeaderCell>
+                        <TableHeaderCell>Tempo</TableHeaderCell>
+                        <TableHeaderCell>Carry</TableHeaderCell>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {activeSession.shots.map((item, index) => (
+                        <TableRow key={`${activeSession.id}-${index}`} appearance={index === activeSession.shots.length - 1 ? 'brand' : 'none'}>
+                          <TableCell className="pl-3 font-medium">#{index + 1}</TableCell>
+                          <TableCell>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="inline-block size-2 rounded-full" style={{ background: clubColorFor(item.club) }} />
+                              {item.club}
+                            </span>
+                          </TableCell>
+                          <TableCell>
+                            <Badge appearance="tint" color={item.airSwing ? 'warning' : 'success'} size="small">
+                              {item.airSwing ? 'Air' : 'Ball'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{convertSpeed(item.clubSpeed).toFixed(1)} {speedUnit}</TableCell>
+                          <TableCell>{item.path > 0 ? '+' : ''}{item.path.toFixed(1)}°</TableCell>
+                          <TableCell>{item.tempo ? formatTempo(item.tempo) : '—'}</TableCell>
+                          <TableCell>{item.airSwing ? '—' : formatDistance(item.carry, units)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <EmptyState icon={<DataUsageRegular />} title="No shots yet" description="Take a shot to start a session." />
+                )}
+              </div>
             </div>
+          )}
+
+          {page.id === 'sessions' && (
+            <SessionList
+              sessions={sessions}
+              activeSessionId={activeSessionId}
+              units={units}
+              onResume={resumeSession}
+              onRename={renameSession}
+              onDelete={deleteSession}
+              onExport={(session) => void handleExportSession(session)}
+              onExportAll={() => void handleExportAll()}
+              onImport={() => void handleImport()}
+            />
           )}
 
           {page.id === 'view' && (
@@ -1130,6 +1273,7 @@ function App() {
           >
             <Tab value="data" icon={<DataUsageRegular />}>Data</Tab>
             <Tab value="session" icon={<ListRegular />}>Session</Tab>
+            <Tab value="sessions" icon={<FolderOpenRegular />}>Sessions</Tab>
             <Tab value="view" icon={<BoxRegular />}>View</Tab>
           </TabList>
           <div className="flex items-center gap-1">
@@ -1201,6 +1345,12 @@ function App() {
         onCustomPressureChange={setCustomPressure}
         includeAirSwings={includeAirSwings}
         onIncludeAirSwingsChange={setIncludeAirSwings}
+      />
+
+      <ResumeDialog
+        session={resumePrompt}
+        onResume={() => { if (resumePrompt) resumeSession(resumePrompt.id) }}
+        onClose={closeSession}
       />
 
       <ConnectDialog
